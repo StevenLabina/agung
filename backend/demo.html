@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KTP OCR & Access System - Local Testing Dashboard</title>
+  <!-- Google Fonts & Tailwind CSS CDN -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0b1329; color: #f1f5f9; }
+    .glass-card { background: rgba(18, 28, 56, 0.75); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.08); }
+    .glass-card:hover { border-color: rgba(99, 102, 241, 0.3); }
+    .gradient-text { background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .badge-glow { box-shadow: 0 0 15px rgba(56, 189, 248, 0.35); }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between">
+
+  <!-- TOP NAVBAR -->
+  <header class="border-b border-slate-800 bg-slate-900/60 sticky top-0 z-50 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30">
+          <i class="ph ph-identification-card text-2xl font-bold"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold gradient-text">OCR KTP & Log Akses</h1>
+          <p class="text-xs text-slate-400">Panel Pengujian Lokal & Frontend Preview</p>
+        </div>
+      </div>
+
+      <!-- Server & DB Status Badges -->
+      <div class="flex items-center space-x-3">
+        <div id="statusBackend" class="flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-slate-800/80 border border-slate-700 text-slate-300">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+          <span>Cek Server...</span>
+        </div>
+        <button onclick="checkHealth()" class="text-slate-400 hover:text-white p-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition" title="Refresh Status">
+          <i class="ph ph-arrows-clockwise text-lg"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-8">
+    
+    <!-- GRID TOP: SCANNER & RESULT PREVIEW -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      
+      <!-- KOLOM KIRI: FORM SCANNER (5 Cols) -->
+      <div class="lg:col-span-5 space-y-6">
+        <div class="glass-card rounded-2xl p-6 shadow-xl space-y-5">
+          <div class="flex items-center justify-between border-b border-slate-800/80 pb-4">
+            <h2 class="text-base font-semibold flex items-center gap-2 text-white">
+              <i class="ph ph-scan text-cyan-400 text-xl"></i>
+              Form Scan Foto KTP
+            </h2>
+            <span class="text-xs px-2.5 py-1 rounded-md bg-cyan-950/80 border border-cyan-800/50 text-cyan-300">
+              POST /api/ocr/scan
+            </span>
+          </div>
+
+          <!-- DRAG & DROP ZONE -->
+          <div id="dropZone" 
+               class="border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-xl p-6 text-center cursor-pointer transition bg-slate-900/40 hover:bg-slate-900/80 group">
+            <input type="file" id="fileInput" accept="image/*" class="hidden">
+            <div id="uploadPlaceholder" class="space-y-3">
+              <div class="w-14 h-14 mx-auto rounded-full bg-slate-800 group-hover:bg-cyan-500/10 flex items-center justify-center text-slate-400 group-hover:text-cyan-400 transition">
+                <i class="ph ph-upload-simple text-3xl"></i>
+              </div>
+              <div>
+                <p class="text-sm font-medium text-slate-200">Klik untuk unggah atau seret file foto KTP ke sini</p>
+                <p class="text-xs text-slate-500 mt-1">Mendukung format JPG, PNG, WEBP (Maksimal 10MB)</p>
+              </div>
+            </div>
+
+            <!-- Preview Image Container (Hidden initially) -->
+            <div id="previewContainer" class="hidden relative">
+              <img id="imagePreview" src="" alt="Preview KTP" class="max-h-56 mx-auto rounded-lg shadow-md object-contain border border-slate-700">
+              <button type="button" onclick="clearSelectedImage(event)" class="absolute top-2 right-2 bg-red-600/80 hover:bg-red-600 text-white p-1.5 rounded-full shadow-lg transition">
+                <i class="ph ph-x text-sm"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- INFO SCAN -->
+          <div class="p-3 bg-cyan-950/30 rounded-xl border border-cyan-800/30 text-xs text-slate-300 space-y-1">
+            <p class="font-semibold text-cyan-300 flex items-center gap-1.5">
+              <i class="ph ph-info text-sm"></i> Hanya Memindai Data KTP
+            </p>
+            <p class="text-[11px] text-slate-400">
+              OCR murni mengekstrak data dari kartu: Nama, NIK, Alamat (gabungan), Foto KTP, dan Metadata. Nomor kavling dimasukkan dari frontend setelah scan.
+            </p>
+          </div>
+
+          <!-- CHECKBOX AUTO SAVE -->
+          <label class="flex items-center space-x-3 cursor-pointer select-none">
+            <input type="checkbox" id="autoSaveCheckbox" checked class="w-4 h-4 rounded text-cyan-500 focus:ring-cyan-500 bg-slate-800 border-slate-700">
+            <span class="text-xs text-slate-300">Otomatis simpan ke database (<code class="text-cyan-400">demo_ocr_ktp</code>)</span>
+          </label>
+
+          <!-- ACTION BUTTONS -->
+          <div class="space-y-2 pt-2">
+            <button id="btnScan" onclick="executeScan()" disabled
+                    class="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 transition">
+              <i class="ph ph-lightning text-lg"></i>
+              <span id="btnScanText">Pindai KTP Sekarang</span>
+            </button>
+
+            <!-- Quick Test with Sample Image -->
+            <button type="button" onclick="loadSampleKtp()" 
+                    class="w-full py-2 px-3 rounded-lg border border-slate-700 hover:bg-slate-800/80 text-xs text-slate-400 hover:text-slate-200 transition flex items-center justify-center space-x-1.5">
+              <i class="ph ph-flask text-sm"></i>
+              <span>Gunakan Sampel Uji Coba KTP Cepat</span>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- KOLOM KANAN: HASIL SCAN & LIVE CARD (7 Cols) -->
+      <div class="lg:col-span-7 space-y-6">
+        <div class="glass-card rounded-2xl p-6 shadow-xl space-y-6">
+          <div class="flex items-center justify-between border-b border-slate-800/80 pb-4">
+            <h2 class="text-base font-semibold flex items-center gap-2 text-white">
+              <i class="ph ph-cardholder text-indigo-400 text-xl"></i>
+              Hasil Pembacaan KTP (Frontend View)
+            </h2>
+            <div id="scanStatusBadge" class="hidden text-xs px-3 py-1 rounded-full"></div>
+          </div>
+
+          <!-- EMPTY STATE -->
+          <div id="resultEmptyState" class="py-16 text-center space-y-3">
+            <div class="w-16 h-16 mx-auto rounded-2xl bg-slate-800/60 border border-slate-700/60 flex items-center justify-center text-slate-500">
+              <i class="ph ph-identification-badge text-4xl"></i>
+            </div>
+            <div class="max-w-xs mx-auto">
+              <p class="text-sm font-medium text-slate-300">Belum Ada KTP Yang Dipindai</p>
+              <p class="text-xs text-slate-500 mt-1">Unggah foto KTP di kolom sebelah kiri dan tekan tombol pindai untuk melihat hasilnya di sini.</p>
+            </div>
+          </div>
+
+          <!-- ACTIVE RESULT CARD (Hidden initially) -->
+          <div id="resultCard" class="hidden space-y-6">
+            
+            <!-- KTP CARD MOCKUP -->
+            <div class="rounded-2xl p-5 border border-cyan-500/30 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 shadow-2xl relative overflow-hidden">
+              <div class="absolute -right-8 -bottom-8 opacity-10 pointer-events-none">
+                <i class="ph ph-shield-check text-9xl"></i>
+              </div>
+
+              <!-- Header Card -->
+              <div class="text-center pb-3 border-b border-slate-700/60">
+                <h3 id="cardProvinsi" class="text-xs font-bold tracking-widest text-slate-400">PROVINSI JAWA TIMUR</h3>
+                <h4 id="cardKota" class="text-sm font-extrabold tracking-wider text-cyan-300">KOTA SURABAYA</h4>
+              </div>
+
+              <!-- Body Card -->
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-5 items-start">
+                
+                <!-- Foto KTP Thumbnail -->
+                <div class="md:col-span-4 text-center space-y-2">
+                  <div class="w-32 h-40 mx-auto rounded-xl overflow-hidden border-2 border-cyan-500/50 shadow-lg bg-black flex items-center justify-center">
+                    <img id="cardFotoKtp" src="" alt="Foto KTP" class="w-full h-full object-cover">
+                  </div>
+                  <span id="cardConfidenceBadge" class="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-300">
+                    Confidence: 95%
+                  </span>
+                </div>
+
+                <!-- Info Utama KTP -->
+                <div class="md:col-span-8 space-y-3 text-xs">
+                  <!-- NIK -->
+                  <div>
+                    <span class="text-[11px] text-slate-400 uppercase font-semibold">NIK</span>
+                    <div id="cardNik" class="text-lg font-black tracking-wider text-white font-mono">-</div>
+                  </div>
+
+                  <!-- Nama -->
+                  <div>
+                    <span class="text-[11px] text-slate-400 uppercase font-semibold">Nama Lengkap</span>
+                    <div id="cardNama" class="text-base font-bold text-slate-100 uppercase">-</div>
+                  </div>
+
+                  <!-- Alamat Gabungan (Utama) -->
+                  <div class="bg-cyan-950/40 p-3 rounded-xl border border-cyan-800/40">
+                    <div class="flex items-center justify-between">
+                      <span class="text-[11px] text-cyan-300 uppercase font-bold flex items-center gap-1">
+                        <i class="ph ph-map-pin"></i> Alamat Lengkap (Tergabung)
+                      </span>
+                      <span class="text-[10px] text-slate-400">Jalan + RT/RW + Kelurahan + Kecamatan</span>
+                    </div>
+                    <div id="cardAlamat" class="text-xs font-semibold text-slate-200 mt-1 leading-relaxed">-</div>
+                  </div>
+
+                  <!-- No Kavling & Jam Masuk -->
+                  <div class="grid grid-cols-2 gap-2 pt-1">
+                    <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                      <span class="text-[10px] text-slate-400 block font-medium">Tujuan Kavling</span>
+                      <span id="cardKavling" class="text-xs font-bold text-indigo-300">-</span>
+                    </div>
+                    <div class="bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+                      <span class="text-[10px] text-slate-400 block font-medium">Waktu Masuk</span>
+                      <span id="cardJamMasuk" class="text-xs font-bold text-emerald-300">-</span>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+
+            <!-- INPUT NOMOR KAVLING KHUSUS FRONTEND -->
+            <div class="bg-indigo-950/40 p-4 rounded-xl border border-indigo-700/50 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <label class="text-xs font-bold text-indigo-300 flex items-center gap-1.5 uppercase tracking-wider">
+                  <i class="ph ph-house-line text-lg text-indigo-400"></i>
+                  Nomor Kavling Tujuan (Diinput oleh Frontend / Petugas)
+                </label>
+                <span class="text-[10px] text-slate-400">Terpisah dari scan KTP</span>
+              </div>
+              <div class="flex gap-2">
+                <input type="text" id="assignKavlingInput" placeholder="Ketik nomor kavling (contoh: Blok A No. 12)" 
+                       class="flex-1 px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 focus:border-indigo-500 text-xs text-white outline-none">
+                <button type="button" onclick="saveKavlingForCurrentKtp()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 shadow-md transition">
+                  <i class="ph ph-floppy-disk text-sm"></i>
+                  <span>Simpan Kavling</span>
+                </button>
+              </div>
+              <p id="kavlingSavedMsg" class="hidden text-[11px] text-emerald-400 flex items-center gap-1 font-medium">
+                <i class="ph ph-check-circle"></i> Nomor kavling berhasil disimpan ke database!
+              </p>
+            </div>
+
+            <!-- METADATA CHIPS GRID -->
+            <div class="space-y-3">
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                <i class="ph ph-brackets-curly text-indigo-400"></i>
+                Data Metadata Tambahan (Kolom JSON)
+              </h4>
+              <div id="metadataGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                <!-- Diisi dinamis via Javascript -->
+              </div>
+            </div>
+
+            <!-- RAW JSON RESPONSE ACCORDION -->
+            <div class="border border-slate-800 rounded-xl overflow-hidden">
+              <button onclick="toggleJsonView()" class="w-full px-4 py-2.5 bg-slate-900/90 text-left text-xs font-semibold text-slate-300 flex items-center justify-between hover:bg-slate-900 transition">
+                <span class="flex items-center gap-2">
+                  <i class="ph ph-code text-cyan-400 text-sm"></i>
+                  Lihat Output Raw JSON untuk Frontend
+                </span>
+                <i id="jsonToggleIcon" class="ph ph-caret-down text-slate-500"></i>
+              </button>
+              <div id="jsonViewerContainer" class="hidden p-4 bg-slate-950 font-mono text-[11px] text-slate-300 max-h-64 overflow-y-auto">
+                <pre id="jsonViewerContent"></pre>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- LIVE DATABASE TABLE (CRUD) -->
+    <div class="glass-card rounded-2xl p-6 shadow-xl space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800/80 pb-5">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i class="ph ph-database text-cyan-400 text-2xl"></i>
+            Tabel Data Tersimpan (<code class="text-cyan-300">demo_ocr_ktp</code>)
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">Seluruh data hasil scan atau entri manual yang tersimpan di MySQL</p>
+        </div>
+
+        <!-- SEARCH & REFRESH -->
+        <div class="flex items-center space-x-3">
+          <div class="relative w-64">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+              <i class="ph ph-magnifying-glass"></i>
+            </span>
+            <input type="text" id="searchInput" oninput="debounceSearch()" placeholder="Cari Nama / NIK / Kavling..."
+                   class="w-full pl-9 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 focus:border-cyan-500 text-xs text-slate-200 placeholder-slate-500 outline-none transition">
+          </div>
+          <button onclick="loadKtpTable()" class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition">
+            <i class="ph ph-arrow-clockwise text-sm"></i>
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- TABLE CONTAINER -->
+      <div class="overflow-x-auto rounded-xl border border-slate-800">
+        <table class="w-full text-left text-xs text-slate-300">
+          <thead class="bg-slate-900/90 text-slate-400 font-semibold uppercase tracking-wider text-[11px] border-b border-slate-800">
+            <tr>
+              <th class="py-3 px-4"># ID</th>
+              <th class="py-3 px-4">Foto</th>
+              <th class="py-3 px-4">NIK</th>
+              <th class="py-3 px-4">Nama Lengkap</th>
+              <th class="py-3 px-4">Alamat Gabungan</th>
+              <th class="py-3 px-4">No. Kavling</th>
+              <th class="py-3 px-4">Jam Masuk</th>
+              <th class="py-3 px-4">Jam Keluar</th>
+              <th class="py-3 px-4 text-center">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="ktpTableBody" class="divide-y divide-slate-800/60 bg-slate-900/30">
+            <tr>
+              <td colspan="9" class="py-8 text-center text-slate-500">Memuat data database...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- PAGINATION FOOTER -->
+      <div class="flex items-center justify-between text-xs text-slate-400 pt-2">
+        <div id="tableInfo">Menampilkan data...</div>
+        <div class="flex items-center space-x-2" id="paginationBtns"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- MODAL DETAIL / EDIT -->
+  <div id="editModal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="glass-card bg-slate-900 rounded-2xl max-w-lg w-full p-6 space-y-4 border border-slate-700 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="ph ph-note-pencil text-cyan-400 text-lg"></i>
+          Edit Data KTP
+        </h3>
+        <button onclick="closeEditModal()" class="text-slate-400 hover:text-white p-1 rounded-lg">
+          <i class="ph ph-x text-lg"></i>
+        </button>
+      </div>
+
+      <form id="editForm" onsubmit="submitEditForm(event)" class="space-y-3 text-xs">
+        <input type="hidden" id="editId">
+        <div>
+          <label class="block text-slate-400 font-medium mb-1">Nama Lengkap</label>
+          <input type="text" id="editNama" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:border-cyan-500">
+        </div>
+        <div>
+          <label class="block text-slate-400 font-medium mb-1">NIK</label>
+          <input type="text" id="editNik" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:border-cyan-500 font-mono">
+        </div>
+        <div>
+          <label class="block text-slate-400 font-medium mb-1">Alamat Gabungan</label>
+          <textarea id="editAlamat" rows="2" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:border-cyan-500"></textarea>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-slate-400 font-medium mb-1">No. Kavling</label>
+            <input type="text" id="editNoKavling" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:border-cyan-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 font-medium mb-1">Jam Keluar</label>
+            <input type="text" id="editJamKeluar" placeholder="YYYY-MM-DD HH:MM:SS" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white outline-none focus:border-cyan-500">
+          </div>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-3 border-t border-slate-800">
+          <button type="button" onclick="closeEditModal()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition">Batal</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold transition">Simpan Perubahan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="border-t border-slate-800/80 bg-slate-900/60 py-4 text-center text-xs text-slate-500">
+    <p>OCR KTP & Log Akses Perumahan © 2026 • Backend PHP Native & Python OCR</p>
+  </footer>
+
+  <!-- SCRIPT LOGIC JAVASCRIPT -->
+  <script>
+    // Ambil base URL secara dinamis dari origin browser saat ini
+    const BASE_URL = window.location.origin;
+    let selectedFile = null;
+    let currentKtpId = null;
+    let currentPage = 1;
+    let searchDebounceTimer = null;
+
+    // Inisialisasi saat halaman dimuat
+    document.addEventListener('DOMContentLoaded', () => {
+      checkHealth();
+      loadKtpTable();
+      setupDropzone();
+    });
+
+    // 1. Cek Koneksi Backend & Database
+    async function checkHealth() {
+      const badge = document.getElementById('statusBackend');
+      badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span><span>Cek Server...</span>`;
+      try {
+        const res = await fetch(`${BASE_URL}/api/setup`);
+        const json = await res.json();
+        if (json.success) {
+          badge.className = "flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-emerald-950/80 border border-emerald-800 text-emerald-300";
+          badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Server & DB Online</span>`;
+        } else {
+          throw new Error(json.message);
+        }
+      } catch (err) {
+        badge.className = "flex items-center space-x-2 text-xs px-3 py-1.5 rounded-full bg-red-950/80 border border-red-800 text-red-300";
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-400"></span><span>Offline: ${err.message}</span>`;
+      }
+    }
+
+    // 2. Setup Drag and Drop
+    function setupDropzone() {
+      const dropZone = document.getElementById('dropZone');
+      const fileInput = document.getElementById('fileInput');
+
+      dropZone.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          handleFile(e.target.files[0]);
+        }
+      });
+
+      ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          dropZone.classList.add('border-cyan-500', 'bg-slate-900');
+        }, false);
+      });
+
+      ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, (e) => {
+          e.preventDefault();
+          dropZone.classList.remove('border-cyan-500', 'bg-slate-900');
+        }, false);
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        if (dt.files.length > 0) {
+          handleFile(dt.files[0]);
+        }
+      });
+    }
+
+    function handleFile(file) {
+      if (!file.type.startsWith('image/')) {
+        alert('File harus berupa gambar (JPG, PNG, WEBP).');
+        return;
+      }
+      selectedFile = file;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById('imagePreview').src = e.target.result;
+        document.getElementById('uploadPlaceholder').classList.add('hidden');
+        document.getElementById('previewContainer').classList.remove('hidden');
+        document.getElementById('btnScan').disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function clearSelectedImage(e) {
+      if (e) e.stopPropagation();
+      selectedFile = null;
+      currentKtpId = null;
+      document.getElementById('fileInput').value = '';
+      document.getElementById('uploadPlaceholder').classList.remove('hidden');
+      document.getElementById('previewContainer').classList.add('hidden');
+      document.getElementById('btnScan').disabled = true;
+      document.getElementById('resultCard').classList.add('hidden');
+      document.getElementById('resultEmptyState').classList.remove('hidden');
+    }
+
+    // 3. Eksekusi Scan OCR KTP (Murni Ekstraksi KTP Tanpa No. Kavling)
+    async function executeScan() {
+      if (!selectedFile) return;
+
+      const btn = document.getElementById('btnScan');
+      const btnText = document.getElementById('btnScanText');
+      btn.disabled = true;
+      btnText.textContent = "Sedang Memindai OCR...";
+
+      const formData = new FormData();
+      formData.append('foto_ktp', selectedFile);
+      // Nomor kavling tidak dikirim saat scan, murni ekstraksi data KTP
+      formData.append('auto_save', document.getElementById('autoSaveCheckbox').checked);
+
+      try {
+        const response = await fetch(`${BASE_URL}/api/ocr/scan`, {
+          method: 'POST',
+          body: formData
+        });
+
+        const res = await response.json();
+
+        if (res.success) {
+          currentKtpId = res.data.id || null;
+          document.getElementById('assignKavlingInput').value = res.data.no_kavling || '';
+          renderResultCard(res.data);
+          loadKtpTable(); // Refresh tabel database secara otomatis!
+        } else {
+          alert('Gagal scan KTP: ' + res.message);
+        }
+      } catch (err) {
+        alert('Terjadi kesalahan jaringan: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btnText.textContent = "Pindai KTP Sekarang";
+      }
+    }
+
+    // 3b. Fungsi Khusus Frontend: Simpan / Hubungkan No. Kavling oleh Petugas
+    async function saveKavlingForCurrentKtp() {
+      const kavlingVal = document.getElementById('assignKavlingInput').value.trim();
+      if (!kavlingVal) {
+        alert('Silakan masukkan nomor kavling tujuan terlebih dahulu.');
+        return;
+      }
+      if (!currentKtpId) {
+        alert('Data KTP belum tersimpan di database. Pastikan opsi "Otomatis simpan ke database" dicentang saat scan KTP.');
+        return;
+      }
+      try {
+        const res = await fetch(`${BASE_URL}/api/ktp/${currentKtpId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ no_kavling: kavlingVal })
+        });
+        const json = await res.json();
+        if (json.success) {
+          document.getElementById('cardKavling').textContent = kavlingVal;
+          const msg = document.getElementById('kavlingSavedMsg');
+          msg.classList.remove('hidden');
+          setTimeout(() => msg.classList.add('hidden'), 3500);
+          loadKtpTable(currentPage);
+        } else {
+          alert('Gagal menyimpan nomor kavling: ' + json.message);
+        }
+      } catch (err) {
+        alert('Terjadi kesalahan koneksi: ' + err.message);
+      }
+    }
+
+    // 4. Render Hasil Scan ke Card Tampilan
+    function renderResultCard(data) {
+      document.getElementById('resultEmptyState').classList.add('hidden');
+      const card = document.getElementById('resultCard');
+      card.classList.remove('hidden');
+
+      const meta = data.metadata || {};
+
+      document.getElementById('cardProvinsi').textContent = meta.provinsi || 'PROVINSI JAWA TIMUR';
+      document.getElementById('cardKota').textContent = meta.kabupaten_kota || 'KOTA SURABAYA';
+      document.getElementById('cardFotoKtp').src = data.foto_ktp || document.getElementById('imagePreview').src;
+      document.getElementById('cardConfidenceBadge').textContent = `Engine: ${meta.ocr_engine || 'OCR'} (${meta.confidence || 85}%)`;
+      document.getElementById('cardNik').textContent = data.nik || '(Tidak Terdeteksi)';
+      document.getElementById('cardNama').textContent = data.nama || '(Tidak Terdeteksi)';
+      document.getElementById('cardAlamat').textContent = data.alamat || '(Tidak Terdeteksi)';
+      document.getElementById('cardKavling').textContent = data.no_kavling || '-';
+      document.getElementById('cardJamMasuk').textContent = data.jam_masuk || '-';
+
+      // Render Metadata Chips
+      const metaGrid = document.getElementById('metadataGrid');
+      const chips = [
+        { label: 'Tempat Lahir', val: meta.tempat_lahir },
+        { label: 'Tanggal Lahir', val: meta.tanggal_lahir },
+        { label: 'Jenis Kelamin', val: meta.jenis_kelamin },
+        { label: 'Gol. Darah', val: meta.golongan_darah },
+        { label: 'Agama', val: meta.agama },
+        { label: 'Status Kawin', val: meta.status_perkawinan },
+        { label: 'Pekerjaan', val: meta.pekerjaan },
+        { label: 'Kewarganegaraan', val: meta.kewarganegaraan },
+        { label: 'Masa Berlaku', val: meta.berlaku_hingga }
+      ];
+
+      metaGrid.innerHTML = chips.map(c => `
+        <div class="bg-slate-900/80 p-2.5 rounded-xl border border-slate-800">
+          <span class="text-[10px] text-slate-500 block">${c.label}</span>
+          <span class="font-semibold text-slate-200 truncate block">${c.val || '-'}</span>
+        </div>
+      `).join('');
+
+      // Render Raw JSON
+      document.getElementById('jsonViewerContent').textContent = JSON.stringify(data, null, 2);
+    }
+
+    function toggleJsonView() {
+      const container = document.getElementById('jsonViewerContainer');
+      const icon = document.getElementById('jsonToggleIcon');
+      container.classList.toggle('hidden');
+      icon.classList.toggle('rotate-180');
+    }
+
+    // 5. Muat Data Tabel KTP (CRUD View)
+    async function loadKtpTable(page = 1) {
+      currentPage = page;
+      const search = document.getElementById('searchInput').value.trim();
+      const tbody = document.getElementById('ktpTableBody');
+
+      try {
+        const res = await fetch(`${BASE_URL}/api/ktp?page=${page}&limit=10&search=${encodeURIComponent(search)}`);
+        const json = await res.json();
+
+        if (!json.success || json.data.items.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="9" class="py-8 text-center text-slate-500">Tidak ada data KTP yang ditemukan.</td></tr>`;
+          document.getElementById('tableInfo').textContent = 'Total: 0 data';
+          return;
+        }
+
+        const items = json.data.items;
+        const pagination = json.data.pagination;
+
+        tbody.innerHTML = items.map(row => {
+          const hasFoto = row.foto_ktp && row.foto_ktp.startsWith('data:image');
+          const fotoImg = hasFoto 
+            ? `<img src="${row.foto_ktp}" class="w-9 h-11 object-cover rounded border border-slate-700 cursor-pointer" onclick="viewPhoto('${row.foto_ktp}')">`
+            : `<div class="w-9 h-11 bg-slate-800 rounded border border-slate-700 flex items-center justify-center text-slate-500"><i class="ph ph-user"></i></div>`;
+
+          const checkoutBtn = !row.jam_keluar
+            ? `<button onclick="doCheckout(${row.id})" class="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded text-[10px] transition">Keluar</button>`
+            : `<span class="text-slate-500 text-[10px]">${row.jam_keluar}</span>`;
+
+          return `
+            <tr class="hover:bg-slate-800/40 transition">
+              <td class="py-3 px-4 font-mono font-bold text-slate-400">#${row.id}</td>
+              <td class="py-3 px-4">${fotoImg}</td>
+              <td class="py-3 px-4 font-mono text-cyan-300">${row.nik || '-'}</td>
+              <td class="py-3 px-4 font-semibold text-white uppercase">${row.nama || '-'}</td>
+              <td class="py-3 px-4 max-w-xs truncate text-slate-300" title="${row.alamat || ''}">${row.alamat || '-'}</td>
+              <td class="py-3 px-4 font-medium text-indigo-300">${row.no_kavling || '-'}</td>
+              <td class="py-3 px-4 text-emerald-400 text-[11px]">${row.jam_masuk || '-'}</td>
+              <td class="py-3 px-4">${checkoutBtn}</td>
+              <td class="py-3 px-4 text-center">
+                <div class="flex items-center justify-center space-x-1.5">
+                  <button onclick="openEditModal(${JSON.stringify(row).replace(/"/g, '&quot;')})" class="p-1.5 hover:bg-slate-700 text-slate-300 rounded transition" title="Edit">
+                    <i class="ph ph-pencil-simple text-sm"></i>
+                  </button>
+                  <button onclick="deleteKtp(${row.id})" class="p-1.5 hover:bg-red-500/20 text-red-400 rounded transition" title="Hapus">
+                    <i class="ph ph-trash text-sm"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+
+        document.getElementById('tableInfo').textContent = `Menampilkan ${items.length} dari total ${pagination.total_items} data`;
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="9" class="py-8 text-center text-red-400">Gagal memuat data: ${err.message}</td></tr>`;
+      }
+    }
+
+    function debounceSearch() {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => loadKtpTable(1), 350);
+    }
+
+    // 6. Action Check-out
+    async function doCheckout(id) {
+      if (!confirm(`Konfirmasi pengunjung #${id} keluar sekarang?`)) return;
+      try {
+        const res = await fetch(`${BASE_URL}/api/ktp/${id}/checkout`, { method: 'POST' });
+        const json = await res.json();
+        if (json.success) {
+          loadKtpTable(currentPage);
+        } else {
+          alert(json.message);
+        }
+      } catch (err) {
+        alert('Gagal checkout: ' + err.message);
+      }
+    }
+
+    // 7. Action Delete
+    async function deleteKtp(id) {
+      if (!confirm(`Yakin ingin menghapus data KTP #${id}?`)) return;
+      try {
+        const res = await fetch(`${BASE_URL}/api/ktp/${id}`, { method: 'DELETE' });
+        const json = await res.json();
+        if (json.success) {
+          loadKtpTable(currentPage);
+        } else {
+          alert(json.message);
+        }
+      } catch (err) {
+        alert('Gagal hapus data: ' + err.message);
+      }
+    }
+
+    // 8. Modal Edit
+    function openEditModal(row) {
+      document.getElementById('editId').value = row.id;
+      document.getElementById('editNama').value = row.nama || '';
+      document.getElementById('editNik').value = row.nik || '';
+      document.getElementById('editAlamat').value = row.alamat || '';
+      document.getElementById('editNoKavling').value = row.no_kavling || '';
+      document.getElementById('editJamKeluar').value = row.jam_keluar || '';
+      document.getElementById('editModal').classList.remove('hidden');
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModal').classList.add('hidden');
+    }
+
+    async function submitEditForm(e) {
+      e.preventDefault();
+      const id = document.getElementById('editId').value;
+      const payload = {
+        nama: document.getElementById('editNama').value.trim(),
+        nik: document.getElementById('editNik').value.trim(),
+        alamat: document.getElementById('editAlamat').value.trim(),
+        no_kavling: document.getElementById('editNoKavling').value.trim(),
+        jam_keluar: document.getElementById('editJamKeluar').value.trim() || null
+      };
+
+      try {
+        const res = await fetch(`${BASE_URL}/api/ktp/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.success) {
+          closeEditModal();
+          loadKtpTable(currentPage);
+        } else {
+          alert('Gagal update: ' + json.message);
+        }
+      } catch (err) {
+        alert('Error: ' + err.message);
+      }
+    }
+
+    function viewPhoto(src) {
+      const w = window.open("");
+      w.document.write(`<img src="${src}" style="max-width:100%;height:auto;margin:20px auto;display:block;">`);
+    }
+
+    // 9. Quick Sample Generator
+    function loadSampleKtp() {
+      // Menggambar KTP sintetis pada canvas HTML5 untuk pengujian cepat
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 500;
+      const ctx = canvas.getContext('2d');
+
+      // Background KTP
+      ctx.fillStyle = "#e0f2fe";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = "#0f172a";
+      ctx.font = "bold 20px sans-serif";
+      ctx.fillText("PROVINSI JAWA TIMUR", 260, 40);
+      ctx.fillText("KOTA SURABAYA", 300, 70);
+
+      ctx.font = "bold 22px monospace";
+      ctx.fillText("NIK           : 3578011508900001", 40, 120);
+
+      ctx.font = "18px sans-serif";
+      ctx.fillText("Nama          : STEVEN LABINA", 40, 160);
+      ctx.fillText("Tempat/Tgl Lahir : SURABAYA, 15-08-1990", 40, 195);
+      ctx.fillText("Jenis Kelamin : LAKI-LAKI    Gol. Darah: O", 40, 230);
+      ctx.fillText("Alamat        : JL. MEDOKAN AYU NO. 45", 40, 265);
+      ctx.fillText("   RT/RW      : 008/001", 40, 295);
+      ctx.fillText("   Kel/Desa   : MEDOKAN AYU", 40, 325);
+      ctx.fillText("   Kecamatan  : RUNGKUT", 40, 355);
+      ctx.fillText("Agama         : KRISTEN", 40, 390);
+      ctx.fillText("Status Kawin  : BELUM KAWIN", 40, 420);
+      ctx.fillText("Pekerjaan     : KARYAWAN SWASTA", 40, 450);
+      ctx.fillText("Masa Berlaku  : SEUMUR HIDUP", 40, 480);
+
+      canvas.toBlob(blob => {
+        const file = new File([blob], "sample_ktp.jpg", { type: "image/jpeg" });
+        handleFile(file);
+      }, 'image/jpeg', 0.95);
+    }
+  </script>
+</body>
+</html>
