@@ -308,6 +308,7 @@ def process_document(image_path: str) -> dict:
     try:
         # Inisialisasi model OCR PP-OCRv5 deteksi + Latin recognition
         ocr = PaddleOCR(
+            enable_mkldnn=False,
             text_detection_model_name="PP-OCRv5_mobile_det",
             text_recognition_model_name="latin_PP-OCRv5_mobile_rec",
             use_doc_orientation_classify=True,

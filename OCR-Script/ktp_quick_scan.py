@@ -26,6 +26,8 @@ import json
 import re
 import base64
 import tempfile
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # Pastikan modul direktori OCR-Script masuk ke sys.path
 _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -244,6 +246,13 @@ def run_ktp_quick_scan(image_path: str, specified_method: str = None) -> dict:
 
             # Eksekusi pipeline PaddleOCR dari ocr_processor
             res = process_document(current_img)
+            
+            # TAMBAHKAN BARIS INI:
+            if not res.get("success"):
+                sys.stderr.write(f"[DEBUG] Error pada metode '{method}': {res.get('error')}\n")
+
+            if res and res.get("success"):
+                raw_text = res.get("raw_text", "")
 
             if res and res.get("success"):
                 raw_text = res.get("raw_text", "")
