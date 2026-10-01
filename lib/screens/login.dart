@@ -4,6 +4,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:iuran_rt_web/screens/log_akses_perumahan.dart';
+import 'package:iuran_rt_web/screens/oct_ktp.dart';
 
 import 'package:iuran_rt_web/url.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -543,7 +544,7 @@ void startAutoLogout() {
                                       context,
                                       MaterialPageRoute(
                                         builder: (context) =>
-                                            const LogAksesPerumahanPage(),
+                                            const OcrKtpPage(),
                                       ),
                                     );
                                   },
