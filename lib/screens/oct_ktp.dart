@@ -43,9 +43,13 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // =========================================================
   // KONFIGURASI API
   // =========================================================
-  // ApiUrls.baseUrl harus berakhiran "/api/"
-  // contoh: http://127.0.0.1:8000/api/
-  String get _base => ApiUrls.baseUrl;
+  String get _base {
+    var b = ApiUrls.ocrBaseUrl.trim();
+    if (b.isEmpty) return 'http://127.0.0.1:8000/api/';
+    if (!b.endsWith('/')) b = '$b/';
+    if (!b.endsWith('/api/')) b = '${b}api/';
+    return b;
+  }
 
   static const String endpointScan = 'ocr/scan'; // POST multipart
   static const String endpointKtp = 'ktp'; // GET list, PUT /{id}, POST /{id}/checkout
