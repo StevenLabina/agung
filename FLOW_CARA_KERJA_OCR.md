@@ -136,11 +136,8 @@ flowchart TD
 - **Baris:** `ktp_quick_scan.py` baris 213–285 (`run_ktp_quick_scan`); `preprocess_adaptive.py` baris 15–154
 - **Fungsi:** `run_ktp_quick_scan()`, `resize_if_needed()`, `preprocess_adaptive()`, `preprocess_ktp_optimized()`
 - **Library:** `opencv-python-headless` (`cv2`), `numpy`, `pillow` (`PIL`)
-- **Jawaban Pertanyaan Kunci:**
-  1. **Kapan dijalankan?**  
-     Preprocessing dijalankan **di dalam proses Quick Scan secara bertahap**, **BUKAN** setelah Quick Scan selesai. Quick Scan adalah orkestrator yang menguji tahapan preprocessing satu per satu.
-  2. **Apakah ke-4 filter dijalankan sekaligus atau satu per satu dengan early stopping?**  
-     Dijalankan **satu per satu secara iteratif dengan sistem Early Stopping**:
+- **Penjelasan Teknis & Mekanisme Kerja:**
+  Preprocessing dijalankan di dalam alur Quick Scan secara bertahap (satu per satu secara iteratif) menggunakan sistem **Early Stopping** untuk efisiensi komputasi CPU:
      - **Iterasi 1 — Metode `'none'` (Citra Asli):**
        - Hanya menjalankan `resize_if_needed()` (baris 15–54) untuk memperkecil resolusi foto kamera berukuran raksasa (> 1600px) menjadi maksimal 1600px menggunakan interpolasi `cv2.INTER_AREA`. Hal ini menghemat beban komputasi CPU sebesar 60–80% tanpa menurunkan akurasi baca huruf.
        - Gambar asli langsung diuji ke model PaddleOCR (`process_document()`).
