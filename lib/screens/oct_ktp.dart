@@ -44,7 +44,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // KONFIGURASI API
   // =========================================================
   String get _base {
-    var b = ApiUrls.baseUrl.trim();
+    var b = ApiUrls.ocrBaseUrl.trim();
     if (b.isEmpty) return 'http://127.0.0.1:8000/api/';
     if (!b.endsWith('/')) b = '$b/';
     if (!b.endsWith('/api/')) b = '${b}api/';

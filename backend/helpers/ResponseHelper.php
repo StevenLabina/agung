@@ -38,14 +38,16 @@ class ResponseHelper
         header("Access-Control-Allow-Origin: *");
         // Izinkan metode HTTP standar RESTful
         header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS, PATCH");
-        // Izinkan header custom yang umum digunakan
-        header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept");
+        // Izinkan semua header (termasuk custom header dari browser)
+        header("Access-Control-Allow-Headers: *");
+        // Dukung Private Network Access (PNA) di Google Chrome (localhost <-> 127.0.0.1)
+        header("Access-Control-Allow-Private-Network: true");
         // Waktu cache untuk preflight request (OPTIONS)
         header("Access-Control-Max-Age: 86400");
 
         // Tangani preflight OPTIONS request secara langsung
-        if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-            http_response_code(200);
+        if (isset($_SERVER['REQUEST_METHOD']) && strtoupper($_SERVER['REQUEST_METHOD']) === 'OPTIONS') {
+            http_response_code(204);
             exit(0);
         }
     }
