@@ -92,7 +92,20 @@ Sesuai rancangan pada phpMyAdmin:
 
 ## ⚙️ Petunjuk Konfigurasi & Cara Menjalankan
 
-### 1. Konfigurasi Environment (`.env`)
+### 1. Setup Virtual Environment Python (OCR)
+Fitur OCR KTP menggunakan Python & PaddleOCR. Siapkan environment di dalam folder `backend/`:
+```bash
+# Windows
+python -m venv backend/venv
+.\backend\venv\Scripts\pip install -r OCR-Script/requirements.txt
+
+# Linux / Ubuntu Server
+python3 -m venv backend/venv
+./backend/venv/bin/pip install -r OCR-Script/requirements.txt
+```
+> **Catatan:** Backend PHP akan **otomatis mendeteksi** folder `backend/venv/` baik di Windows maupun Linux server.
+
+### 2. Konfigurasi Environment (`.env`)
 Salin file `.env.example` menjadi `.env` lalu sesuaikan kredensial MySQL Anda:
 ```env
 DB_HOST=127.0.0.1
@@ -101,11 +114,11 @@ DB_NAME=ocr_ktp
 DB_USER=root
 DB_PASS=
 
-# Path eksekusi Python (opsional)
-PYTHON_PATH=py
+# Path eksekusi Python (opsional, kosongkan jika sudah memakai venv di root project)
+PYTHON_PATH=
 ```
 
-### 2. Inisialisasi Database
+### 3. Inisialisasi Database
 Jalankan inisialisasi tabel otomatis melalui browser/cURL atau seeder CLI:
 ```bash
 # Opsi 1: Melalui CLI Seeder
@@ -115,7 +128,7 @@ php backend/database/seeder.php
 Import file backend/database/migration.sql
 ```
 
-### 3. Menjalankan Server Backend
+### 4. Menjalankan Server Backend
 #### Menggunakan Apache / XAMPP:
 Pastikan folder proyek berada di dalam direktori `htdocs` (misal: `C:\xampp\htdocs\agung\backend`). Akses melalui:
 `http://localhost/agung/backend/`

@@ -36,34 +36,72 @@ class OcrService
         // Pastikan file .env termuat
         \Config\Database::loadEnv();
 
-        // Deteksi path python dari .env atau default sistem
-        $envPython = getenv('PYTHON_PATH') ?: ($_ENV['PYTHON_PATH'] ?? null);
-        if (!empty($envPython) && file_exists($envPython)) {
-            $this->pythonExecutable = $envPython;
-        } else {
-            $this->pythonExecutable = $this->detectPythonExecutable();
-        }
-
         // Tentukan path script OCR di folder OCR-Script
         $projectRoot = dirname(__DIR__, 2);
         $this->ocrScriptPath = $projectRoot . '/OCR-Script/ktp_quick_scan.py';
+
+        // Deteksi path python dari .env atau default sistem
+        $envPython = getenv('PYTHON_PATH') ?: ($_ENV['PYTHON_PATH'] ?? null);
+        if (!empty($envPython)) {
+            $envPythonClean = trim($envPython, '"\'');
+            if (file_exists($envPythonClean)) {
+                $this->pythonExecutable = $envPythonClean;
+            } elseif (file_exists($projectRoot . '/' . ltrim($envPythonClean, '/\\'))) {
+                $this->pythonExecutable = $projectRoot . '/' . ltrim($envPythonClean, '/\\');
+            } elseif (file_exists($projectRoot . '/backend/' . ltrim($envPythonClean, '/\\'))) {
+                $this->pythonExecutable = $projectRoot . '/backend/' . ltrim($envPythonClean, '/\\');
+            } else {
+                $this->pythonExecutable = $this->detectPythonExecutable($envPythonClean);
+            }
+        } else {
+            $this->pythonExecutable = $this->detectPythonExecutable();
+        }
     }
 
     /**
      * Mendeteksi letak executable Python pada sistem operasi.
-     * Mengutamakan virtual environment CRM yang memiliki PaddleOCR terinstall.
+     * Mengutamakan virtual environment lokal project (backend/venv atau root venv) agar portabel di Windows maupun Linux server.
      *
+     * @param string|null $preferredCmd Nama atau path prioritas jika ada
      * @return string Nama binary atau path python yang dapat dieksekusi
      */
-    private function detectPythonExecutable(): string
+    private function detectPythonExecutable(?string $preferredCmd = null): string
     {
+        $projectRoot = dirname(__DIR__, 2);
+
+        // 1. Cek virtual environment di dalam folder backend maupun project root
+        $localVenvs = [
+            $projectRoot . '/backend/venv/Scripts/python.exe',  // Windows backend/venv
+            $projectRoot . '/backend/.venv/Scripts/python.exe', // Windows backend/.venv
+            $projectRoot . '/backend/venv/bin/python',         // Linux/macOS backend/venv
+            $projectRoot . '/backend/.venv/bin/python',        // Linux/macOS backend/.venv
+            $projectRoot . '/venv/Scripts/python.exe',          // Windows root venv
+            $projectRoot . '/.venv/Scripts/python.exe',         // Windows root .venv
+            $projectRoot . '/venv/bin/python',                 // Linux/macOS root venv
+            $projectRoot . '/.venv/bin/python',                // Linux/macOS root .venv
+        ];
+
+        foreach ($localVenvs as $venvPy) {
+            if (file_exists($venvPy)) {
+                return $venvPy;
+            }
+        }
+
+        // 2. Cek preferred command jika diberikan
+        if (!empty($preferredCmd)) {
+            $testCmd = (DIRECTORY_SEPARATOR === '\\') ? "where.exe $preferredCmd 2>nul" : "which $preferredCmd 2>/dev/null";
+            $output = @shell_exec($testCmd);
+            if (!empty($output)) {
+                return trim(explode("\n", trim($output))[0]);
+            }
+        }
+
+        // 3. Cek binary Python standar di sistem
         $candidates = [
-            'D:\\STEVE\\Semester 7\\Apikko\\crm\\venv\\Scripts\\python.exe',
-            'C:\\Windows\\py.exe',
-            'C:\\Users\\drons\\AppData\\Local\\Microsoft\\WindowsApps\\python.exe',
-            'py',
+            'python3',
             'python',
-            'python3'
+            'py',
+            'C:\\Windows\\py.exe',
         ];
 
         foreach ($candidates as $cmd) {
@@ -77,7 +115,7 @@ class OcrService
             }
         }
 
-        return 'D:\\STEVE\\Semester 7\\Apikko\\crm\\venv\\Scripts\\python.exe';
+        return 'python';
     }
 
     /**
