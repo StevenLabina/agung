@@ -723,7 +723,7 @@ class _LaporanKeuanganAsetPageState extends State<LaporanKeuanganAsetPage> {
     final idRt = KodeRt.kodeRt;
 
     final response = await http.post(
-      Uri.parse('${ApiUrls.baseUrl}/list_aset.php'),
+      Uri.parse('${ApiUrls.baseUrl.endsWith('/') ? ApiUrls.baseUrl : '${ApiUrls.baseUrl}/'}list_aset.php'),
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },

@@ -352,7 +352,7 @@ class _LaporanKeuanganNeracaPageState extends State<LaporanKeuanganNeracaPage> {
   Future<Map<String, dynamic>> fetchAset({String? bulan, String? tahun}) async {
     try {
       final response = await http.post(
-        Uri.parse('${ApiUrls.baseUrl}/list_aset.php'),
+        Uri.parse('${ApiUrls.baseUrl.endsWith('/') ? ApiUrls.baseUrl : '${ApiUrls.baseUrl}/'}list_aset.php'),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: {
           'id_rt': KodeRt.kodeRt,
@@ -701,7 +701,7 @@ class _LaporanKeuanganNeracaPageState extends State<LaporanKeuanganNeracaPage> {
       {String? bulan, String? tahun}) async {
     try {
       final response = await http.post(
-        Uri.parse('${ApiUrls.baseUrl}/list_aset.php'),
+        Uri.parse('${ApiUrls.baseUrl.endsWith('/') ? ApiUrls.baseUrl : '${ApiUrls.baseUrl}/'}list_aset.php'),
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: {
           'id_rt': KodeRt.kodeRt,
