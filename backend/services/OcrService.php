@@ -176,7 +176,7 @@ class OcrService
         }
 
         if (empty($stdout)) {
-            throw new Exception("Script OCR Python tidak menghasilkan output apapun. Error: " . ($stderr ?: "Exit code $exitCode"));
+            throw new Exception("Script OCR Python [bin: {$pythonBin}] tidak menghasilkan output apapun. Error: " . ($stderr ?: "Exit code $exitCode"));
         }
 
         // Pastikan encoding string bersih dan valid UTF-8
