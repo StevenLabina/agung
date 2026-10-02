@@ -2,55 +2,44 @@
 **Proyek:** RT Digital — Modul Ekstraksi KTP Otomatis & Buku Tamu Pengunjung  
 **Arsitektur:** Flutter Web/Mobile Frontend ⟷ PHP RESTful Backend ⟷ Python Engine (OpenCV & PaddleOCR) ⟷ MySQL Database  
 
----
 
-## 📌 DAFTAR ISI
-1. [Arsitektur & Diagram Alur Sistem (Sequence Diagram)](#1-arsitektur--diagram-alur-sistem)
-2. [Tahap 0: Inisialisasi & Setup Environment Python (venv)](#2-tahap-0-inisialisasi--setup-environment-python-venv)
-3. [Daftar File yang Bekerja & Peran Masing-Masing](#3-daftar-file-yang-bekerja--peran-masing-masing)
-4. [Daftar Library & Plugin yang Digunakan](#4-daftar-library--plugin-yang-digunakan)
-5. [Alur Kerja Langkah-demi-Langkah (Step-by-Step Flow)](#5-alur-kerja-langkah-demi-langkah-step-by-step-flow)
-6. [Struktur & Spesifikasi Data (Request, Response, Database)](#6-struktur--spesifikasi-data)
-7. [Checklist Troubleshooting & Masalah Umum](#7-checklist-troubleshooting--masalah-umum)
-
----
-
-## 1. Arsitektur & Diagram Alur Sistem
+## 1. Diagram Alur Kerja OCR KTP (Vertikal)
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    actor Pengguna as Petugas / Satpam RT
-    participant Flutter as Frontend (oct_ktp.dart)
-    participant Router as PHP Router (index.php)
-    participant OcrCtrl as OcrController.php
-    participant ImgSvc as ImageService.php
-    participant OcrSvc as OcrService.php
-    participant PyOCR as Python (ktp_quick_scan.py)
-    participant OpenCV as Preprocessor (preprocess_adaptive.py)
-    participant MySQL as Database (demo_ocr_ktp)
+flowchart TD
+    subgraph FrontendLayer ["1. Frontend (Flutter Web / Mobile)"]
+        A["📸 1. Petugas Memilih / Memotret Foto KTP<br><i>(lib/screens/oct_ktp.dart via image_picker)</i>"]
+        --> B["🔍 2. Validasi Format & Ukuran Citra<br><i>(Maksimal 8 MB, format: JPG/PNG/WEBP)</i>"]
+        --> C["🚀 3. Kirim HTTP POST Multipart ke /api/ocr/scan<br><i>(Field: image, no_kavling, auto_save)</i>"]
+    end
 
-    Pengguna->>Flutter: 1. Pilih / Foto KTP & isi No. Kavling
-    Flutter->>Flutter: 2. Validasi ekstensi & ukuran (maks 8MB)
-    Flutter->>Router: 3. HTTP POST /api/ocr/scan (Multipart Form-Data)
-    Router->>OcrCtrl: 4. Teruskan request ke OcrController::scan()
-    OcrCtrl->>ImgSvc: 5. Validasi tipe MIME & simpan fisik
-    ImgSvc-->>OcrCtrl: 6. Kembalikan file_path & Base64 Data URI
-    OcrCtrl->>OcrSvc: 7. Panggil OcrService::scanKtp(file_path)
-    OcrSvc->>OcrSvc: 8. Deteksi Python Virtual Environment (venv)
-    OcrSvc->>PyOCR: 9. Eksekusi CLI: python ktp_quick_scan.py <file_path>
-    PyOCR->>OpenCV: 10. Adaptive Thresholding, Grayscale, Deskew
-    OpenCV-->>PyOCR: 11. Kembalikan citra teroptimasi
-    PyOCR->>PyOCR: 12. Inferensi PaddleOCR & Parsing Regex KTP
-    PyOCR-->>OcrSvc: 13. Output JSON melalui stdout
-    OcrSvc-->>OcrCtrl: 14. Array data terstruktur hasil decode
-    OcrCtrl->>MySQL: 15. INSERT ke tabel demo_ocr_ktp
-    MySQL-->>OcrCtrl: 16. Kembalikan ID data tersimpan
-    OcrCtrl-->>Router: 17. Susun JSON respon HTTP 200
-    Router-->>Flutter: 18. Kirim HTTP 200 JSON ke browser/aplikasi
-    Flutter->>Flutter: 19. Isi otomatis form (Nama, NIK, Alamat)
-    Flutter->>Flutter: 20. Refresh tabel riwayat pengunjung (GET /api/ktp)
-    Flutter-->>Pengguna: 21. Tampilkan dialog sukses scan & preview KTP
+    subgraph BackendGateway ["2. Backend Gateway & Controller (PHP)"]
+        C --> D["🌐 4. Terima Request & Routing Endpoint<br><i>(backend/index.php & ResponseHelper.php)</i>"]
+        --> E["💾 5. Validasi MIME Type & Simpan Fisik Gambar<br><i>(ImageService.php -> storage/uploads/ktp_xxx.jpg)</i>"]
+        --> F["🔤 6. Konversi Citra Menjadi Base64 Data URI<br><i>(Untuk disimpan langsung ke tabel database)</i>"]
+        --> G["⚙️ 7. Deteksi Python Virtual Environment (venv)<br><i>(backend/services/OcrService.php)</i>"]
+        --> H["⚡ 8. Jalankan Child Process via proc_open()<br><i>(python OCR-Script/ktp_quick_scan.py [path_gambar] none)</i>"]
+    end
+
+    subgraph PythonEngine ["3. Engine OCR KTP (Python)"]
+        H --> I["🖼️ 9. Pra-pemrosesan Citra Menggunakan OpenCV<br><i>(preprocess_adaptive.py: Grayscale, Bilateral, Adaptive Threshold)</i>"]
+        --> J["🤖 10. Inferensi Teks AI Menggunakan PaddleOCR<br><i>(Text Detection DBNet + Text Recognition SVTR)</i>"]
+        --> K["📋 11. Parsing Regex Pola KTP Indonesia<br><i>(Ekstraksi NIK, Nama, Alamat, TTL, Agama, dll.)</i>"]
+        --> L["📤 12. Cetak Hasil Ekstraksi JSON ke stdout<br><i>(Output string terstruktur UTF-8)</i>"]
+    end
+
+    subgraph StorageResponse ["4. Database & Pengiriman Respon"]
+        L --> M["📥 13. PHP Menangkap stdout & Menjalankan json_decode()<br><i>(OcrService.php)</i>"]
+        --> N["🗄️ 14. Simpan Record Pengunjung ke Database MySQL<br><i>(KtpModel.php -> INSERT INTO demo_ocr_ktp)</i>"]
+        --> O["📬 15. Kirim Respon HTTP 200 JSON ke Frontend<br><i>(ResponseHelper::success)</i>"]
+    end
+
+    subgraph DisplayResult ["5. Menampilkan Hasil ke Pengguna"]
+        O --> P["📲 16. Frontend Menerima Respon JSON Hasil Scan<br><i>(oct_ktp.dart)</i>"]
+        --> Q["✍️ 17. Otomatis Mengisi Form Input Pengunjung<br><i>(Nama, NIK, Alamat terisi ke TextEditingController)</i>"]
+        --> R["👁️ 18. Tampilkan Pratinjau Foto KTP & Dialog Konfirmasi"]
+        --> S["🔄 19. Muat Ulang Tabel Riwayat Pengunjung<br><i>(_fetchList() memanggil GET /api/ktp)</i>"]
+    end
 ```
 
 ---
@@ -134,33 +123,30 @@ chmod -R o+rx /home/vito/api.rukuntetangga.net/backend/venv
 
 ---
 
-## 4. Daftar Library & Plugin yang Digunakan
+## 4. Daftar Library & Plugin yang Digunakan (Khusus OCR KTP)
 
 ### A. Frontend (Flutter / Dart)
-Dideklarasikan di `pubspec.yaml`:
-- **`http: ^1.2.0`**: Mengirim request HTTP multipart (`MultipartRequest`) untuk upload file dan request REST JSON (`GET`, `PUT`, `POST`).
-- **`http_parser: ^4.0.2`**: Menentukan MIME-type file citra (`MediaType('image', 'jpeg')`).
-- **`image_picker: ^0.8.6`**: Mengambil citra KTP dari kamera langsung atau galeri file perangkat (mendukung Web, Android, iOS, Windows).
-- **`google_fonts: ^6.2.1`**: Tipografi aplikasi yang konsisten.
-- **`fluttertoast: ^8.2.1`**: Menampilkan notifikasi popup hasil proses.
-- **`intl: ^0.18.1`**: Format tanggal dan jam kedatangan pengunjung.
+*(Dideklarasikan di `pubspec.yaml` khusus untuk alur OCR KTP)*:
+- **`image_picker: ^0.8.6`**: Memotret foto KTP langsung dari kamera atau mengambil file citra dari galeri/penyimpanan perangkat.
+- **`http: ^1.2.0`**: Membuka koneksi stream dan mengirim citra KTP via request HTTP Multipart (`POST /api/ocr/scan`).
+- **`http_parser: ^4.0.2`**: Menentukan header `MediaType` (`image/jpeg`, `image/png`) pada payload multipart upload.
 
 ### B. Backend (PHP Native Modern)
-- **`ext-pdo` & `ext-pdo_mysql`**: Koneksi database yang aman dari SQL Injection.
-- **`ext-json`**: Serialisasi dan deserialisasi data request/response.
-- **`ext-mbstring`**: Penanganan encoding teks UTF-8 pada hasil pembacaan teks KTP.
-- **`ext-fileinfo`**: Deteksi validitas MIME Type file gambar yang diunggah.
-- **`proc_open()` & `stream_get_contents()`**: Menjalankan subprocess Python secara asinkron tanpa memblokir thread HTTP.
+*(Fitur & Ekstensi PHP yang digunakan khusus untuk pemrosesan OCR)*:
+- **`proc_open()` & `stream_get_contents()`**: Menjalankan subprocess command-line Python secara asinkron dan menangkap stream output `stdout` (JSON) dan `stderr` (error log).
+- **`ext-fileinfo`**: Memvalidasi MIME type dan format asli file gambar KTP sebelum disimpan ke storage lokal.
+- **`ext-json`**: Melakukan deserialisasi JSON hasil inferensi Python dan menyusun respon payload HTTP JSON ke frontend.
+- **`ext-pdo` & `ext-pdo_mysql`**: Menyimpan dan mengupdate data hasil ekstraksi OCR (NIK, Nama, Alamat, Foto Base64) ke tabel MySQL `demo_ocr_ktp`.
+- **`ext-mbstring`**: Membersihkan dan memastikan encoding string hasil OCR adalah valid UTF-8.
 
 ### C. Python OCR Core Engine
-Dideklarasikan di `OCR-Script/requirements.txt`:
-- **`paddleocr (>=2.7.0)`**: Deep Learning OCR Engine berbasis PP-OCRv4 dari Baidu. Sangat ringan, cepat, dan akurat membaca teks bahasa Indonesia.
-- **`paddlepaddle (>=3.0.0)`**: Framework komputasi tensor pendukung PaddleOCR.
-- **`opencv-python` / `opencv-python-headless (>=4.8.0)` (`cv2`)**: Pustaka Computer Vision utama untuk manipulasi matriks piksel, thresholding adaptif, dan koreksi orientasi KTP.
-- **`numpy (>=1.24.0)`**: Operasi array numerik berkecepatan tinggi pada representasi piksel citra.
-- **`pillow (>=10.0.0)` (`PIL`)**: Pembacaan dan manipulasi format citra (JPEG/PNG/WebP).
-- **`psutil (>=5.9.0)`**: Monitoring alokasi memori dan resource sistem.
-- **`pyclipper` & `shapely`**: Algoritma kalkulasi poligon koordinat bounding box deteksi teks.
+*(Dideklarasikan di `OCR-Script/requirements.txt` untuk ekstraksi teks KTP)*:
+- **`paddleocr (>=2.7.0)`**: Deep Learning OCR Engine berbasis PP-OCRv4 dari Baidu untuk mendeteksi koordinat kotak teks (DBNet) dan mengenali teks/karakter (SVTR) pada KTP.
+- **`paddlepaddle (>=3.0.0)`**: Framework komputasi tensor backend untuk eksekusi inferensi model PaddleOCR.
+- **`opencv-python` / `opencv-python-headless (>=4.8.0)` (`cv2`)**: Pustaka Computer Vision utama untuk pra-pemrosesan citra KTP: konversi grayscale, bilateral noise filtering, adaptive thresholding, dan koreksi kemiringan (deskew).
+- **`numpy (>=1.24.0)`**: Operasi array matriks numerik berkecepatan tinggi untuk manipulasi piksel citra KTP.
+- **`pillow (>=10.0.0)` (`PIL`)**: Pembacaan, decoding, dan normalisasi format citra (JPEG/PNG/WebP).
+- **`pyclipper` & `shapely`**: Algoritma kalkulasi geometri poligon dan ekspansi bounding box area teks KTP.
 
 ---
 
