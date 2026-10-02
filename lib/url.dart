@@ -1,6 +1,7 @@
 class ApiUrls {
-  static const String baseUrl = "https://trr08-api.rukuntetangga.net/";
+  //static const String baseUrl = "https://trr08-api.rukuntetangga.net/";
   //static const String baseUrl = "http://localhost/wirausaha/";
+  static const String baseUrl = "http://127.0.0.1:8000/api/";
   //static const String baseUrl = "https://de47-180-253-149-19.ngrok-free.app";
   //jalankan ngrok: ngrok http 3000
   //token: eMj5BcZjSs6qtDEhooufqS:APA91bHNASadUuqgrbuEvjs0lgqg7MLDq9xGXaBleIxD_FEefk5Ub3CfZMaHLbn0J6FmUza0VzMiaRjDFdtmeT7J05bEeII_-HWxaDEMEu4hZ-Il0J-EOvI
