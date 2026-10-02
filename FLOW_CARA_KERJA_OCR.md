@@ -81,11 +81,7 @@ flowchart TD
        ),
      );
      ```
-  3. **Klarifikasi Parameter `no_kavling` & `auto_save`:**
-     - Pada request `_scan()` awal, Flutter **hanya mengirimkan file `image`**.
-     - Parameter `auto_save`: Tidak perlu dikirim manual oleh Flutter, karena backend (`OcrController.php` baris 79–83) secara otomatis menerapkan nilai bawaan `true` (`$autoSaveParam = $input['auto_save'] ?? $_POST['auto_save'] ?? true;`). Dengan demikian, backend otomatis mencatat data hasil scan ke database.
-     - Parameter `no_kavling`: Pada tahap awal scan memang bernilai kosong (`null`), karena nomor kavling tujuan diinput secara manual oleh petugas keamanan di layar setelah data nama dan NIK KTP terbaca.
-  4. Request dikirimkan menggunakan `request.send()` dengan timeout 90 detik.
+  3. Request dikirimkan menggunakan `request.send()` dengan timeout 90 detik.
 
 ---
 
