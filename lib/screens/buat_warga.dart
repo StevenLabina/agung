@@ -9,6 +9,7 @@ import 'package:iuran_rt_web/main.dart';
 import 'package:iuran_rt_web/menu_pilihan.dart';
 import 'package:iuran_rt_web/screens/buat_warga_csv.dart';
 import 'package:iuran_rt_web/screens/data_ipl.dart';
+import 'package:iuran_rt_web/screens/data_iuran.dart' hide ThousandsSeparatorInputFormatter;
 import 'dart:convert';
 
 import 'package:iuran_rt_web/url.dart';
