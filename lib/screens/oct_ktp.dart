@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -11,6 +11,16 @@ import 'package:iuran_rt_web/url.dart';
 import 'package:iuran_rt_web/utils/photo_quality.dart';
 import 'package:iuran_rt_web/widgets/ktp_camera_view.dart';
 import 'package:universal_html/html.dart' as html;
+
+/// Exception terstruktur untuk error API/jaringan/server
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  const ApiException(this.message, {this.statusCode});
+
+  @override
+  String toString() => message;
+}
 
 /// Kolom form. [key] = nama field yang dikirim ke backend (PUT /api/ktp/{id}).
 class _KtpField {
@@ -177,7 +187,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       try {
         final d = jsonDecode(v);
         if (d is Map) return Map<String, dynamic>.from(d);
-      } catch (_) {}
+      } on FormatException catch (e, stack) {
+        debugPrint('Format JSON tidak valid pada _toMap: $e\n$stack');
+      } catch (e, stack) {
+        debugPrint('Gagal mengonversi string ke Map: $e\n$stack');
+      }
     }
     return {};
   }
@@ -186,14 +200,29 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     dynamic json;
     try {
       json = jsonDecode(response.body);
-    } catch (_) {
-      json = null;
+    } on FormatException catch (e, stack) {
+      debugPrint('Gagal parse JSON dari respons server (HTTP ${response.statusCode}): $e\n$stack');
+      throw ApiException(
+        'Respons server tidak berupa JSON valid (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    } catch (e, stack) {
+      debugPrint('Kesalahan tidak terduga saat decode respons: $e\n$stack');
+      throw ApiException(
+        'Gagal membaca respons server',
+        statusCode: response.statusCode,
+      );
     }
+
     if (json is! Map) {
-      throw Exception('Respons server tidak valid (${response.statusCode})');
+      throw ApiException(
+        'Struktur data respons server tidak sesuai format (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
     }
     if (!_isOk(json)) {
-      throw Exception(_msg(json) ?? 'Permintaan gagal (${response.statusCode})');
+      final msg = _msg(json) ?? 'Permintaan gagal diproses (HTTP ${response.statusCode})';
+      throw ApiException(msg, statusCode: response.statusCode);
     }
     return json;
   }
@@ -226,13 +255,21 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       final bytes = PhotoTools.prepareForUpload(raw);
       if (!mounted) return;
       _setPhoto(bytes);
-    } catch (e) {
-      debugPrint('Gagal memilih foto: $e');
+    } on PlatformException catch (e, stack) {
+      debugPrint('PlatformException saat memilih foto: ${e.code} ${e.message}\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanError = source == ImageSource.camera
+            ? 'Izin kamera ditolak atau tidak tersedia di perangkat ini.'
+            : 'Izin akses galeri ditolak.';
+      });
+    } catch (e, stack) {
+      debugPrint('Gagal memilih foto: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _scanError = source == ImageSource.camera
             ? 'Kamera tidak tersedia di perangkat ini, gunakan "Pilih File"'
-            : 'Gagal memilih foto';
+            : 'Gagal memilih foto: $e';
       });
     }
   }
@@ -247,18 +284,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     setState(() {
       _imageBytes = bytes;
       _imageName = 'ktp.jpg';
-      _scanError = q.ok
-          ? null
-          : kDebugMode
-              ? '${q.message} (tajam=${q.sharpness.toStringAsFixed(0)}, '
-                  'teks=${q.textSharpness.toStringAsFixed(2)})'
-              : q.message;
-      // Mode debug saja: tampilkan skor supaya ambang batas bisa dikalibrasi di HP
-      _scanInfo = (kDebugMode && q.ok)
-          ? 'Foto baik (tajam=${q.sharpness.toStringAsFixed(0)}, '
-              'teks=${q.textSharpness.toStringAsFixed(2)}, '
-              'terang=${q.brightness.toStringAsFixed(0)})'
-          : null;
+      _scanError = q.ok ? null : q.message;
+      _scanInfo = null;
     });
   }
 
@@ -272,31 +299,54 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       uploadInput.click();
 
       uploadInput.onChange.listen((e) {
-        final files = uploadInput.files;
-        if (files == null || files.isEmpty) return;
-        final file = files[0];
-        final reader = html.FileReader();
-        reader.readAsArrayBuffer(file);
-        reader.onLoadEnd.listen((e) {
-          final result = reader.result;
-          if (result is List<int>) {
-            final raw = Uint8List.fromList(result);
-            if (raw.length > maxImageBytes) {
-              if (!mounted) return;
-              setState(() {
-                _scanError = 'Ukuran foto terlalu besar (maks 8 MB)';
-                _scanInfo = null;
-              });
-              return;
+        try {
+          final files = uploadInput.files;
+          if (files == null || files.isEmpty) return;
+          final file = files[0];
+          final reader = html.FileReader();
+
+          reader.onError.listen((err) {
+            debugPrint('FileReader error: $err');
+            if (mounted) {
+              setState(() => _scanError = 'Gagal membaca berkas gambar kamera.');
             }
-            final bytes = PhotoTools.prepareForUpload(raw);
-            if (!mounted) return;
-            _setPhoto(bytes);
+          });
+
+          reader.onLoadEnd.listen((e) {
+            try {
+              final result = reader.result;
+              if (result is List<int>) {
+                final raw = Uint8List.fromList(result);
+                if (raw.length > maxImageBytes) {
+                  if (!mounted) return;
+                  setState(() {
+                    _scanError = 'Ukuran foto terlalu besar (maks 8 MB)';
+                    _scanInfo = null;
+                  });
+                  return;
+                }
+                final bytes = PhotoTools.prepareForUpload(raw);
+                if (!mounted) return;
+                _setPhoto(bytes);
+              }
+            } catch (err, stack) {
+              debugPrint('Error saat memproses data gambar: $err\n$stack');
+              if (mounted) {
+                setState(() => _scanError = 'Gagal memproses gambar kamera: $err');
+              }
+            }
+          });
+
+          reader.readAsArrayBuffer(file);
+        } catch (err, stack) {
+          debugPrint('Error onChange file input: $err\n$stack');
+          if (mounted) {
+            setState(() => _scanError = 'Gagal mengambil gambar dari kamera.');
           }
-        });
+        }
       });
-    } catch (e) {
-      debugPrint('Error direct camera web: $e');
+    } catch (e, stack) {
+      debugPrint('Error direct camera web: $e\n$stack');
       _pickImage(ImageSource.camera);
     }
   }
@@ -439,19 +489,45 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _formKey.currentState?.validate();
       });
-    } on TimeoutException {
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException OCR: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = 'Waktu habis. Proses OCR AI membutuhkan waktu lebih lama. Coba lagi.';
+        _scanError = 'Waktu habis. Proses OCR AI membutuhkan waktu lebih lama. Silakan coba lagi.';
       });
-    } catch (e) {
-      debugPrint('Error OCR: $e');
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException OCR: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = e.toString().replaceFirst('Exception: ', '');
+        _scanError = 'Gagal terhubung ke server OCR. Pastikan perangkat terhubung ke jaringan.';
       });
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException OCR: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _scanError = e.message;
+      });
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException OCR: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _scanError = 'Format respons OCR tidak sesuai format data.';
+      });
+    } catch (e, stack) {
+      debugPrint('Error OCR tidak terduga: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _scanError = 'Terjadi kesalahan sistem saat memproses KTP. Silakan coba lagi.';
+      });
+    } finally {
+      if (mounted && _scanning) {
+        setState(() => _scanning = false);
+      }
     }
   }
 
@@ -512,11 +588,21 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       _resetForm();
       _clearImage();
       _fetchList();
-    } on TimeoutException {
-      _snack('Waktu habis saat menyimpan, coba lagi');
-    } catch (e) {
-      debugPrint('Error simpan KTP: $e');
-      _snack(e.toString().replaceFirst('Exception: ', ''));
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException simpan: $e\n$stack');
+      _snack('Waktu koneksi habis saat menyimpan. Silakan coba lagi.');
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException simpan: $e\n$stack');
+      _snack('Gagal menghubungi server database. Periksa koneksi jaringan Anda.');
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException simpan: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      _snack(e.message);
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException simpan: $e\n$stack');
+      _snack('Format data penyimpanan tidak valid.');
+    } catch (e, stack) {
+      debugPrint('Error simpan KTP tidak terduga: $e\n$stack');
+      _snack('Terjadi kesalahan sistem saat menyimpan data KTP.');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -574,13 +660,45 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
         _totalPages = totalPages < 1 ? 1 : totalPages;
         _loadingList = false;
       });
-    } catch (e) {
-      debugPrint('Error ambil daftar KTP: $e');
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException fetch list: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _loadingList = false;
-        _listError = e.toString().replaceFirst('Exception: ', '');
+        _listError = 'Waktu koneksi habis saat memuat daftar data.';
       });
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException fetch list: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = 'Koneksi ke server terputus. Pastikan perangkat terhubung.';
+      });
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException fetch list: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = e.message;
+      });
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException fetch list: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = 'Data daftar tidak valid.';
+      });
+    } catch (e, stack) {
+      debugPrint('Error ambil daftar KTP tidak terduga: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = 'Gagal memuat data pengunjung. Silakan coba lagi.';
+      });
+    } finally {
+      if (mounted && _loadingList) {
+        setState(() => _loadingList = false);
+      }
     }
   }
 
@@ -623,10 +741,21 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       final json = await _decode(response);
       _snack(_msg(json) ?? 'Checkout berhasil', error: false);
       await _fetchList(page: _page);
-    } on TimeoutException {
-      _snack('Waktu habis saat checkout, coba lagi');
-    } catch (e) {
-      _snack(e.toString().replaceFirst('Exception: ', ''));
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException checkout: $e\n$stack');
+      _snack('Waktu koneksi habis saat checkout. Silakan coba lagi.');
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException checkout: $e\n$stack');
+      _snack('Koneksi terputus saat checkout. Periksa jaringan Anda.');
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException checkout: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      _snack(e.message);
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException checkout: $e\n$stack');
+      _snack('Format respons checkout tidak valid.');
+    } catch (e, stack) {
+      debugPrint('Error checkout: $e\n$stack');
+      _snack('Gagal memproses checkout tamu. Silakan coba lagi.');
     } finally {
       if (mounted) setState(() => _busyIds.remove(id));
     }
@@ -932,9 +1061,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
-          _imageBytes == null && !_cameraUnavailable
-              ? 'Posisikan seluruh KTP di dalam kotak kuning, pegang HP sejajar dengan kartu, lalu tekan KAMERA'
-              : 'Pegang KTP tegak lurus, cahaya cukup. Tekan KAMERA untuk memotret atau PILIH FILE dari galeri',
+          _imageBytes != null
+              ? 'Foto siap diproses. Tekan "Baca KTP" di atas untuk memindai data.'
+              : !_cameraUnavailable
+                  ? 'Posisikan seluruh KTP di dalam kotak kuning, pegang HP sejajar dengan kartu, lalu tekan KAMERA'
+                  : 'Pegang KTP tegak lurus, cahaya cukup. Tekan KAMERA untuk memotret atau PILIH FILE dari galeri',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.white70, fontSize: 15),
         ),
@@ -1008,36 +1139,6 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
               },
             ),
           ),
-          if (_metadata.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Theme(
-              data:
-                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: const Text(
-                  'Data tambahan hasil OCR',
-                  style: TextStyle(fontSize: 14, color: Colors.black54),
-                ),
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: SelectableText(
-                      _metadata.entries
-                          .map((e) => '${e.key}: ${_str(e.value)}')
-                          .join('\n'),
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
           const SizedBox(height: 20),
           Wrap(
             alignment: WrapAlignment.end,

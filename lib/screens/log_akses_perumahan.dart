@@ -174,10 +174,17 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
       }
       idRt = (decoded['id_rt'] ?? '').toString().trim();
       noKavling = (decoded['no_kavling'] ?? '').toString().trim();
-    } catch (_) {
+    } on FormatException catch (e, stack) {
+      debugPrint('Format QR bukan JSON valid: $e\n$stack');
       return ScanResult(
         status: ScanStatus.notResident,
         message: 'QR bukan JSON warga\n(isi: $cuplikan)',
+      );
+    } catch (e, stack) {
+      debugPrint('Kesalahan tidak terduga saat parsing QR: $e\n$stack');
+      return ScanResult(
+        status: ScanStatus.notResident,
+        message: 'QR tidak dapat diproses\n(isi: $cuplikan)',
       );
     }
 

@@ -84,7 +84,8 @@ class _WebQrScannerState extends State<WebQrScanner> {
           js_util.jsify({'formats': ['qr_code']}),
         ]);
       }
-    } catch (_) {
+    } catch (e, stack) {
+      debugPrint('BarcodeDetector tidak tersedia: $e\n$stack');
       _detector = null;
     }
     _hasJsQr = js_util.hasProperty(html.window, 'jsQR');
@@ -124,11 +125,13 @@ class _WebQrScannerState extends State<WebQrScanner> {
             ]
           })
         ]));
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Continuous focus tidak didukung browser ini: $e');
+      }
 
       _schedule();
-    } catch (e) {
-      debugPrint('Gagal membuka kamera: $e');
+    } catch (e, stack) {
+      debugPrint('Gagal membuka kamera QR: $e\n$stack');
     }
   }
 
@@ -159,7 +162,8 @@ class _WebQrScannerState extends State<WebQrScanner> {
           return js_util.getProperty(list.first, 'rawValue')?.toString();
         }
         return null;
-      } catch (_) {
+      } catch (e, stack) {
+        debugPrint('BarcodeDetector detect error: $e\n$stack');
         _detector = null; // tidak jalan di browser ini -> pakai jsQR
       }
     }
