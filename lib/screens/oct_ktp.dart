@@ -236,8 +236,9 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     try {
       final XFile? file = await _picker.pickImage(
         source: source,
-        maxWidth: 2400,
-        imageQuality: 92,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
       );
       if (file == null) return;
 
@@ -251,7 +252,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
         return;
       }
 
-      // Putar sesuai EXIF + kecilkan ke maks 1600px (upload lebih cepat)
+      // Putar sesuai EXIF + optimasi ukuran bila perlu (cepat)
       final bytes = PhotoTools.prepareForUpload(raw);
       if (!mounted) return;
       _setPhoto(bytes);
@@ -274,17 +275,12 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     }
   }
 
-  /// Simpan foto + cek kualitas (peringatan saja, belum memblokir).
+  /// Pasang foto ke preview secara instan tanpa memblokir thread UI.
   void _setPhoto(Uint8List bytes) {
-    final q = PhotoTools.analyze(bytes);
-    debugPrint('Kualitas foto: tajam=${q.sharpness.toStringAsFixed(0)} '
-        'teks=${q.textSharpness.toStringAsFixed(2)} '
-        'terang=${q.brightness.toStringAsFixed(0)} '
-        'glare=${(q.glareRatio * 100).toStringAsFixed(1)}% ok=${q.ok}');
     setState(() {
       _imageBytes = bytes;
       _imageName = 'ktp.jpg';
-      _scanError = q.ok ? null : q.message;
+      _scanError = null;
       _scanInfo = null;
     });
   }

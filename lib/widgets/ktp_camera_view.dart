@@ -25,7 +25,7 @@ class KtpCameraView extends StatefulWidget {
     this.onError,
     this.guideScale = 0.86,
     this.cropMargin = 0.04,
-    this.maxSide = 1600,
+    this.maxSide = 1080,
     this.hint = 'Posisikan seluruh KTP di dalam kotak kuning',
   });
 
@@ -83,7 +83,7 @@ class KtpCameraViewState extends State<KtpCameraView> {
 
       final controller = CameraController(
         cam,
-        ResolutionPreset.veryHigh,
+        ResolutionPreset.high,
         enableAudio: false,
       );
       try {

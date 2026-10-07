@@ -187,12 +187,17 @@ class PhotoTools {
   }
 
   /// Siapkan foto untuk diunggah: putar sesuai EXIF (foto kamera HP sering "miring"
-  /// di metadata), kecilkan sisi terpanjang, lalu simpan sebagai JPEG.
+  /// di metadata), kecilkan sisi terpanjang bila perlu, lalu simpan sebagai JPEG.
   static Uint8List prepareForUpload(
     Uint8List bytes, {
-    int maxSide = 1600,
-    int quality = 88,
+    int maxSide = 1200,
+    int quality = 85,
   }) {
+    // Fast path: Jika gambar sudah kecil (<= 400 KB), langsung gunakan tanpa decode ulang berat
+    if (bytes.length <= 400 * 1024) {
+      return bytes;
+    }
+
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return bytes;
 
@@ -213,6 +218,11 @@ class PhotoTools {
     int maxSide = 720,
     int quality = 70,
   }) {
+    // Fast path: Jika gambar sudah berukuran wajar (<= 250 KB), tidak perlu kompresi ulang
+    if (bytes.length <= 250 * 1024) {
+      return bytes;
+    }
+
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return bytes;
 
