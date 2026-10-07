@@ -67,7 +67,7 @@ class KtpCameraViewState extends State<KtpCameraView> {
     _init();
   }
 
-  Future<void> _init() async {
+  Future<void> _init({int attempt = 1}) async {
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
@@ -86,7 +86,12 @@ class KtpCameraViewState extends State<KtpCameraView> {
         ResolutionPreset.veryHigh,
         enableAudio: false,
       );
-      await controller.initialize();
+      try {
+        await controller.initialize();
+      } catch (_) {
+        await controller.dispose();
+        rethrow;
+      }
       if (!mounted) {
         await controller.dispose();
         return;
@@ -95,12 +100,22 @@ class KtpCameraViewState extends State<KtpCameraView> {
           'preview=${controller.value.previewSize} mirror=$_mirror');
       setState(() => _controller = controller);
     } on CameraException catch (e) {
-      debugPrint('CameraException: ${e.code} ${e.description}');
+      debugPrint('CameraException (percobaan $attempt): ${e.code} ${e.description}');
+      // Kamera masih dipegang stream sebelumnya (mis. habis "Foto Ulang") atau
+      // sedang dilepas aplikasi lain: tunggu sebentar lalu coba lagi.
+      if (e.code == 'cameraNotReadable' && attempt < 4 && mounted) {
+        await Future<void>.delayed(Duration(milliseconds: 600 * attempt));
+        if (mounted) return _init(attempt: attempt + 1);
+        return;
+      }
       final denied = '${e.code} ${e.description}'.toLowerCase();
       _fail(denied.contains('denied') || denied.contains('permission')
           ? 'Izin kamera ditolak. Izinkan kamera di pengaturan browser, '
               'atau gunakan "Pilih File".'
-          : 'Kamera tidak dapat dibuka. Gunakan "Pilih File".');
+          : e.code == 'cameraNotReadable'
+              ? 'Kamera sedang dipakai aplikasi/tab lain. Tutup aplikasi itu '
+                  'lalu muat ulang halaman, atau gunakan "Pilih File".'
+              : 'Kamera tidak dapat dibuka. Gunakan "Pilih File".');
     } catch (e) {
       debugPrint('Error init kamera: $e');
       _fail('Kamera tidak dapat dibuka. Gunakan "Pilih File".');
