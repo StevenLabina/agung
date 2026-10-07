@@ -44,20 +44,28 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // =========================================================
   // KONFIGURASI API
   // =========================================================
-  // ApiUrls.baseUrl harus berakhiran "/api/"
-  // contoh: http://127.0.0.1:8000/api/
+  // ApiUrls.baseUrl untuk database buku tamu (GET list, POST simpan, PUT /{id})
   String get _base => ApiUrls.baseUrl;
 
-  static const String endpointScan = 'ocr/scan'; // POST multipart
-  static const String endpointKtp = 'ktp'; // GET list, PUT /{id}, POST /{id}/checkout
-  static const String fieldFoto = 'image'; // dibaca backend dari $_FILES['image']
+  // Endpoint API OCR KTP (CRM Apikko)
+  String get _crmOcrUrl => ApiUrls.crmOcrUrl;
+  String get _crmApiKey => ApiUrls.crmApiKey;
+  String get _crmFallbackApiKey => ApiUrls.crmFallbackApiKey;
 
-  // Kolom yang bisa diedit (sesuai tabel demo_ocr_ktp)
+  static const String endpointKtp = 'ktp'; // GET list, POST baru, PUT /{id}, POST /{id}/checkout
+  static const String fieldFoto = 'image'; // field file multipart untuk POST /api/ocr/ktp
+
+  // Kolom yang ditampilkan dan diedit (sesuai tabel demo_ocr_ktp & hasil OCR CRM)
   static const List<_KtpField> _fields = [
-    _KtpField('nama', 'Nama'),
+    _KtpField('nama', 'Nama Lengkap'),
     _KtpField('nik', 'NIK', keyboard: TextInputType.number, maxLength: 16),
-    _KtpField('alamat', 'Alamat', fullWidth: true),
-    _KtpField('no_kavling', 'No. Kavling Tujuan', fullWidth: true),
+    _KtpField('no_kavling', 'No. Kavling Tujuan'),
+    _KtpField('jenis_kelamin', 'Jenis Kelamin'),
+    _KtpField('tanggal_lahir', 'Tanggal Lahir'),
+    _KtpField('pekerjaan', 'Pekerjaan'),
+    _KtpField('kewarganegaraan', 'Kewarganegaraan'),
+    _KtpField('berlaku_hingga', 'Masa Berlaku'),
+    _KtpField('alamat', 'Alamat Lengkap', fullWidth: true),
   ];
 
   // ---- state scan ----
@@ -256,7 +264,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   }
 
   // =========================================================
-  // SCAN OCR  ->  POST /api/ocr/scan
+  // SCAN OCR  ->  POST /api/ocr/ktp (CRM Apikko Backend)
   // =========================================================
 
   Future<void> _scan() async {
@@ -271,58 +279,91 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
 
     try {
       final name = _imageName ?? 'ktp.jpg';
-      final request = http.MultipartRequest(
-        'POST',
-        Uri.parse('$_base$endpointScan'),
-      )..files.add(
+      final mediaType = _mediaType(name);
+
+      // Fungsi pengirim request HTTP Multipart ke endpoint CRM
+      Future<http.Response> postOcrRequest(String apiKey) async {
+        final request = http.MultipartRequest(
+          'POST',
+          Uri.parse(_crmOcrUrl),
+        );
+        request.headers['Accept'] = 'application/json';
+        if (apiKey.isNotEmpty) {
+          request.headers['X-API-KEY'] = apiKey;
+        }
+
+        // Lampirkan file citra KTP
+        request.files.add(
           http.MultipartFile.fromBytes(
             fieldFoto,
             bytes,
             filename: name,
-            contentType: _mediaType(name),
+            contentType: mediaType,
           ),
         );
 
-      final streamed =
-          await request.send().timeout(const Duration(seconds: 130));
-      final response = await http.Response.fromStream(streamed);
-      final json = await _decode(response);
+        final currentKavling = _ctrl['no_kavling']?.text.trim() ?? '';
+        if (currentKavling.isNotEmpty) {
+          request.fields['no_kavling'] = currentKavling;
+        }
+        request.fields['method'] = 'sharpen';
 
+        final streamed =
+            await request.send().timeout(const Duration(seconds: 90));
+        return http.Response.fromStream(streamed);
+      }
+
+      // Kirim request pertama dengan API key utama
+      http.Response response = await postOcrRequest(_crmApiKey);
+
+      // Otomatis coba fallback API key jika server lokal/staging menghasilkan 401
+      if (response.statusCode == 401 && _crmFallbackApiKey != _crmApiKey) {
+        response = await postOcrRequest(_crmFallbackApiKey);
+      }
+
+      final json = await _decode(response);
       final data = _toMap(json['data']);
 
-      // Isi form dari hasil OCR
+      // 1. Ekstraksi kolom utama
       _ctrl['nama']!.text = _str(data['nama']);
       _ctrl['nik']!.text = _str(data['nik']).replaceAll(RegExp(r'\D'), '');
       _ctrl['alamat']!.text = _str(data['alamat']);
-      // no_kavling dikosongkan: diisi manual oleh petugas
-      _ctrl['no_kavling']!.text = _str(data['no_kavling']);
+      if (_ctrl['no_kavling']!.text.isEmpty && data['no_kavling'] != null) {
+        _ctrl['no_kavling']!.text = _str(data['no_kavling']);
+      }
 
-      final id = _str(data['id']);
-      final filled = ['nama', 'nik', 'alamat']
-          .where((k) => _ctrl[k]!.text.isNotEmpty)
-          .length;
+      // 2. Ekstraksi kolom pendukung hasil pembacaan AI CRM
+      _ctrl['jenis_kelamin']!.text = _str(data['jenis_kelamin']);
+      _ctrl['tanggal_lahir']!.text = _str(data['tanggal_lahir']);
+      _ctrl['pekerjaan']!.text = _str(data['pekerjaan']);
+      _ctrl['kewarganegaraan']!.text = _str(data['kewarganegaraan']);
+      _ctrl['berlaku_hingga']!.text = _str(data['berlaku_hingga']);
+
+      // 3. Simpan metadata & hasil teknis
+      final rawMeta = _toMap(data['metadata']);
+      final meta = Map<String, dynamic>.from(rawMeta);
+      meta['jenis_kelamin'] = _str(data['jenis_kelamin']);
+      meta['tanggal_lahir'] = _str(data['tanggal_lahir']);
+      meta['pekerjaan'] = _str(data['pekerjaan']);
+      meta['kewarganegaraan'] = _str(data['kewarganegaraan']);
+      meta['berlaku_hingga'] = _str(data['berlaku_hingga']);
 
       if (!mounted) return;
       setState(() {
-        _ktpId = id.isEmpty ? null : id;
-        _metadata = _toMap(data['metadata']);
-        _scanInfo = id.isEmpty
-            ? '$filled dari 3 kolom terbaca, tetapi server tidak mengembalikan ID. Hubungi admin.'
-            : '$filled dari 3 kolom terbaca. Periksa, isi No. Kavling, lalu tekan Simpan.';
+        _ktpId = null; // Record baru belum disimpan ke database
+        _metadata = meta;
+        _scanInfo = 'Data KTP berhasil diambil';
         _scanning = false;
       });
 
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _formKey.currentState?.validate();
       });
-
-      // Record sudah dibuat oleh backend (auto_save), segarkan daftar
-      _fetchList();
     } on TimeoutException {
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = 'Waktu habis. Proses OCR terlalu lama, coba lagi';
+        _scanError = 'Waktu habis. Proses OCR AI membutuhkan waktu lebih lama. Coba lagi.';
       });
     } catch (e) {
       debugPrint('Error OCR: $e');
@@ -335,13 +376,14 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   }
 
   // =========================================================
-  // SIMPAN  ->  PUT /api/ktp/{id}
+  // SIMPAN  ->  POST /api/ktp (Baru) atau PUT /api/ktp/{id}
   // =========================================================
 
   Future<void> _simpan() async {
     if (_saving) return;
-    if (_ktpId == null) {
-      _snack('Scan KTP dulu sebelum menyimpan');
+    if (_ctrl['nama']!.text.trim().isEmpty &&
+        _ctrl['nik']!.text.trim().isEmpty) {
+      _snack('Scan KTP atau isi formulir sebelum menyimpan');
       return;
     }
     if (!(_formKey.currentState?.validate() ?? false)) return;
@@ -349,20 +391,39 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     setState(() => _saving = true);
 
     try {
-      final payload = <String, String>{
+      final payload = <String, dynamic>{
         for (final f in _fields) f.key: _ctrl[f.key]!.text.trim(),
+        if (_imageBytes != null)
+          'foto_ktp': 'data:image/jpeg;base64,${base64Encode(_imageBytes!)}',
+        'metadata': _metadata,
       };
 
-      final response = await http
-          .put(
-            Uri.parse('$_base$endpointKtp/$_ktpId'),
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-            body: jsonEncode(payload),
-          )
-          .timeout(const Duration(seconds: 15));
+      final http.Response response;
+      if (_ktpId == null || _ktpId!.isEmpty) {
+        // Data pengunjung baru: POST /api/ktp
+        response = await http
+            .post(
+              Uri.parse('$_base$endpointKtp'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: jsonEncode(payload),
+            )
+            .timeout(const Duration(seconds: 20));
+      } else {
+        // Perbarui data pengunjung yang ada: PUT /api/ktp/{id}
+        response = await http
+            .put(
+              Uri.parse('$_base$endpointKtp/$_ktpId'),
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+              },
+              body: jsonEncode(payload),
+            )
+            .timeout(const Duration(seconds: 20));
+      }
 
       final json = await _decode(response);
 
@@ -659,18 +720,37 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
               ),
             if (_scanning)
               Container(
-                color: Colors.black54,
+                color: Colors.black.withValues(alpha: 0.65),
                 alignment: Alignment.center,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: const Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 12),
+                    SizedBox(
+                      width: 42,
+                      height: 42,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 3.5,
+                      ),
+                    ),
+                    SizedBox(height: 14),
                     Text(
-                      'Membaca KTP...',
+                      'Sedang Memindai KTP...',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      'Mohon tunggu sebentar, AI sedang mengekstrak data...',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
                       ),
                     ),
                   ],
@@ -917,6 +997,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       ),
     );
   }
+
 
   Widget _buildField(_KtpField f, double width) {
     OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(

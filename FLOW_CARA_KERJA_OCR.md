@@ -257,3 +257,50 @@ Dideklarasikan pada `OCR-Script/requirements.txt`:
 - **`numpy (>=1.24.0)`**: Operasi matriks piksel citra numerik berkecepatan tinggi.
 - **`pillow (>=10.0.0)` (`PIL`)**: Pembacaan dan decoding format file gambar KTP.
 - **`pyclipper` & `shapely`**: Kalkulasi geometri koordinat bounding box poligon teks.
+
+---
+
+## 4. Integrasi Endpoint API OCR KTP Backend CRM (`crm.apikkedu.com`)
+
+### A. Spesifikasi Endpoint
+- **URL Endpoint:** `POST https://crm.apikkedu.com/api/ocr/ktp`
+- **Konfigurasi:** Terpusat di `lib/url.dart` (`ApiUrls.crmOcrUrl`, `ApiUrls.crmApiKey`)
+- **Headers Wajib:**
+  - `Accept`: `application/json`
+  - `X-API-KEY`: `[API_CLIENT_KEY]` (Default prod: `apikko_cust_secret_access_key_2026`, lokal: `apikko-t40-internal-backup-key`)
+- **Payload Request:** Multipart Form-Data
+  - `image`: File biner citra KTP (JPG / PNG / WEBP)
+  - `no_kavling`: (opsional) String nomor kavling tujuan
+  - `method`: `sharpen` (default model preprocessing)
+
+### B. Format Respons JSON (HTTP 200)
+```json
+{
+  "success": true,
+  "message": "KTP berhasil dipindai.",
+  "data": {
+    "nik": "3574020207050001",
+    "nama": "BENEDICTUS LEONARDO EDWARD",
+    "alamat": "JL MASTRIP, RT 004/001, KEL. WONOASIH, KEC. WONOASIH",
+    "no_kavling": "",
+    "jenis_kelamin": "Laki-laki",
+    "tanggal_lahir": "2005-07-02",
+    "kewarganegaraan": "IDN",
+    "pekerjaan": "PELAJAR/MAHASISWA",
+    "berlaku_hingga": "SEUMUR HIDUP",
+    "metadata": {
+      "confidence": 100,
+      "execution_time_seconds": 15.75,
+      "method_used": "PP-OCRv6 + sharpen"
+    }
+  }
+}
+```
+
+### C. Alur Pemrosesan pada Frontend Flutter (`lib/screens/oct_ktp.dart`)
+1. **Pemilihan/Pemotretan Foto:** Foto diambil dari kamera atau galeri, diputar sesuai EXIF dan dicek kualitasnya via `PhotoTools`.
+2. **Pengiriman Multipart:** `_scan()` mengirim biner citra via HTTP multipart POST ke `ApiUrls.crmOcrUrl` beserta header `X-API-KEY`.
+3. **Penangkapan & Validasi Respons:** Status HTTP 200/401/422/500 didekode aman melalui `_decode()`. Dilengkapi mekanisme fallback API key otomatis jika terdapat perbedaan key lokal vs server.
+4. **Auto-Populate Form & Tampilan Metrik:** Seluruh field utama (`nama`, `nik`, `alamat`, `no_kavling`) dan pendukung (`jenis_kelamin`, `tanggal_lahir`, `pekerjaan`, `kewarganegaraan`, `berlaku_hingga`) otomatis mengisi controller form. Di bagian atas formulir muncul ringkasan akurasi AI (`confidence`), waktu proses (`execution_time_seconds`), dan metode engine.
+5. **Penyimpanan Buku Tamu:** Saat petugas menekan tombol **"Simpan"**, data formulir beserta foto Base64 dan seluruh metadata dikirimkan via `POST /api/ktp` (tamu baru) atau `PUT /api/ktp/{id}` ke database RT dan tabel riwayat pengunjung otomatis dimutakhirkan.
+
