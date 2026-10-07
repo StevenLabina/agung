@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +10,17 @@ import 'package:image_picker/image_picker.dart';
 import 'package:iuran_rt_web/url.dart';
 import 'package:iuran_rt_web/utils/photo_quality.dart';
 import 'package:iuran_rt_web/widgets/ktp_camera_view.dart';
+import 'package:universal_html/html.dart' as html;
+
+/// Exception terstruktur untuk error API/jaringan/server
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  const ApiException(this.message, {this.statusCode});
+
+  @override
+  String toString() => message;
+}
 
 /// Kolom form. [key] = nama field yang dikirim ke backend (PUT /api/ktp/{id}).
 class _KtpField {
@@ -45,8 +56,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // =========================================================
   // KONFIGURASI API
   // =========================================================
-  // ApiUrls.baseUrl untuk database buku tamu (GET list, POST simpan, PUT /{id})
-  String get _base => ApiUrls.baseUrl;
+  // Otomatis sesuai environment (lokal -> port 8000 / MySQL demo_ocr_ktp; produksi -> server cloud)
+  String get _base => ApiUrls.ktpBaseUrl;
 
   // Endpoint API OCR KTP (CRM Apikko)
   String get _crmOcrUrl => ApiUrls.crmOcrUrl;
@@ -56,16 +67,12 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   static const String endpointKtp = 'ktp'; // GET list, POST baru, PUT /{id}, POST /{id}/checkout
   static const String fieldFoto = 'image'; // field file multipart untuk POST /api/ocr/ktp
 
-  // Kolom yang ditampilkan dan diedit (sesuai tabel demo_ocr_ktp & hasil OCR CRM)
+  // Kolom yang ditampilkan di form (Nama, NIK, No. Kavling, Alamat)
+  // Data OCR pendukung lainnya otomatis masuk ke metadata dan disimpan ke DB
   static const List<_KtpField> _fields = [
-    _KtpField('nama', 'Nama Lengkap'),
+    _KtpField('nama', 'Nama Lengkap', fullWidth: true),
     _KtpField('nik', 'NIK', keyboard: TextInputType.number, maxLength: 16),
-    _KtpField('no_kavling', 'No. Kavling Tujuan'),
-    _KtpField('jenis_kelamin', 'Jenis Kelamin'),
-    _KtpField('tanggal_lahir', 'Tanggal Lahir'),
-    _KtpField('pekerjaan', 'Pekerjaan'),
-    _KtpField('kewarganegaraan', 'Kewarganegaraan'),
-    _KtpField('berlaku_hingga', 'Masa Berlaku'),
+    _KtpField('no_kavling', 'No. Kavling Tujuan (Opsional)'),
     _KtpField('alamat', 'Alamat Lengkap', fullWidth: true),
   ];
 
@@ -138,6 +145,35 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     return s.length >= 16 ? s.substring(0, 16) : s;
   }
 
+  /// Membersihkan alamat hasil OCR dari duplikasi kelurahan/kecamatan dan kebocoran teks agama/status
+  static String _cleanAddress(String raw) {
+    if (raw.trim().isEmpty) return '';
+    var text = raw.trim();
+
+    // 1. Buang kata-kata agama dan status perkawinan yang bocor di akhir teks alamat
+    final bleedRegex = RegExp(
+      r'[\s,\.\-:]*(?:ISLAM|KRISTEN|KATHOLIK|KATOLIK|HINDU|BUDHA|BUDDHA|KONGHUCU|PENGHAYAT|KAWIN|BELUM\s+KAWIN|CERAI\s+HIDUP|CERAI\s+MATI|WIRASWASTA|PEKERJAAN|AGAMA|STATUS)[\s\S]*$',
+      caseSensitive: false,
+    );
+    text = text.replaceAll(bleedRegex, '');
+
+    // 2. Buang label ALAMAT yang bocor di tengah
+    text = text.replaceAll(RegExp(r'[\s,]+ALAMAT\b', caseSensitive: false), '');
+
+    // 3. Dedup segmen koma (mis. KEC. A WONOASIH muncul 2 kali)
+    final parts = text.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+    final deduped = <String>[];
+    final seen = <String>{};
+    for (final p in parts) {
+      final norm = p.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+      if (norm.isNotEmpty && !seen.contains(norm)) {
+        seen.add(norm);
+        deduped.add(p);
+      }
+    }
+    return deduped.join(', ');
+  }
+
   static MediaType _mediaType(String name) {
     final n = name.toLowerCase();
     if (n.endsWith('.png')) return MediaType('image', 'png');
@@ -151,7 +187,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       try {
         final d = jsonDecode(v);
         if (d is Map) return Map<String, dynamic>.from(d);
-      } catch (_) {}
+      } on FormatException catch (e, stack) {
+        debugPrint('Format JSON tidak valid pada _toMap: $e\n$stack');
+      } catch (e, stack) {
+        debugPrint('Gagal mengonversi string ke Map: $e\n$stack');
+      }
     }
     return {};
   }
@@ -160,14 +200,29 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     dynamic json;
     try {
       json = jsonDecode(response.body);
-    } catch (_) {
-      json = null;
+    } on FormatException catch (e, stack) {
+      debugPrint('Gagal parse JSON dari respons server (HTTP ${response.statusCode}): $e\n$stack');
+      throw ApiException(
+        'Respons server tidak berupa JSON valid (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    } catch (e, stack) {
+      debugPrint('Kesalahan tidak terduga saat decode respons: $e\n$stack');
+      throw ApiException(
+        'Gagal membaca respons server',
+        statusCode: response.statusCode,
+      );
     }
+
     if (json is! Map) {
-      throw Exception('Respons server tidak valid (${response.statusCode})');
+      throw ApiException(
+        'Struktur data respons server tidak sesuai format (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
     }
     if (!_isOk(json)) {
-      throw Exception(_msg(json) ?? 'Permintaan gagal (${response.statusCode})');
+      final msg = _msg(json) ?? 'Permintaan gagal diproses (HTTP ${response.statusCode})';
+      throw ApiException(msg, statusCode: response.statusCode);
     }
     return json;
   }
@@ -181,8 +236,9 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     try {
       final XFile? file = await _picker.pickImage(
         source: source,
-        maxWidth: 2400,
-        imageQuality: 92,
+        maxWidth: 1280,
+        maxHeight: 1280,
+        imageQuality: 85,
       );
       if (file == null) return;
 
@@ -196,61 +252,120 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
         return;
       }
 
-      // Putar sesuai EXIF + kecilkan ke maks 1600px (upload lebih cepat)
+      // Putar sesuai EXIF + optimasi ukuran bila perlu (cepat)
       final bytes = PhotoTools.prepareForUpload(raw);
       if (!mounted) return;
       _setPhoto(bytes);
-    } catch (e) {
-      debugPrint('Gagal memilih foto: $e');
+    } on PlatformException catch (e, stack) {
+      debugPrint('PlatformException saat memilih foto: ${e.code} ${e.message}\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanError = source == ImageSource.camera
+            ? 'Izin kamera ditolak atau tidak tersedia di perangkat ini.'
+            : 'Izin akses galeri ditolak.';
+      });
+    } catch (e, stack) {
+      debugPrint('Gagal memilih foto: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _scanError = source == ImageSource.camera
             ? 'Kamera tidak tersedia di perangkat ini, gunakan "Pilih File"'
-            : 'Gagal memilih foto';
+            : 'Gagal memilih foto: $e';
       });
     }
   }
 
-  /// Simpan foto + cek kualitas (peringatan saja, belum memblokir).
+  /// Pasang foto ke preview secara instan tanpa memblokir thread UI.
   void _setPhoto(Uint8List bytes) {
-    final q = PhotoTools.analyze(bytes);
-    debugPrint('Kualitas foto: tajam=${q.sharpness.toStringAsFixed(0)} '
-        'teks=${q.textSharpness.toStringAsFixed(2)} '
-        'terang=${q.brightness.toStringAsFixed(0)} '
-        'glare=${(q.glareRatio * 100).toStringAsFixed(1)}% ok=${q.ok}');
     setState(() {
       _imageBytes = bytes;
       _imageName = 'ktp.jpg';
-      _scanError = q.ok
-          ? null
-          : kDebugMode
-              ? '${q.message} (tajam=${q.sharpness.toStringAsFixed(0)}, '
-                  'teks=${q.textSharpness.toStringAsFixed(2)})'
-              : q.message;
-      // Mode debug saja: tampilkan skor supaya ambang batas bisa dikalibrasi di HP
-      _scanInfo = (kDebugMode && q.ok)
-          ? 'Foto baik (tajam=${q.sharpness.toStringAsFixed(0)}, '
-              'teks=${q.textSharpness.toStringAsFixed(2)}, '
-              'terang=${q.brightness.toStringAsFixed(0)})'
-          : null;
+      _scanError = null;
+      _scanInfo = null;
     });
   }
 
+  /// Buka kamera HP secara langsung pada browser web (tanpa masuk ke file picker)
+  Future<void> _pickImageDirectCameraWeb() async {
+    if (_scanning) return;
+    try {
+      final uploadInput = html.FileUploadInputElement();
+      uploadInput.accept = 'image/*';
+      uploadInput.setAttribute('capture', 'environment'); // Memicu aplikasi kamera belakang langsung
+      uploadInput.click();
+
+      uploadInput.onChange.listen((e) {
+        try {
+          final files = uploadInput.files;
+          if (files == null || files.isEmpty) return;
+          final file = files[0];
+          final reader = html.FileReader();
+
+          reader.onError.listen((err) {
+            debugPrint('FileReader error: $err');
+            if (mounted) {
+              setState(() => _scanError = 'Gagal membaca berkas gambar kamera.');
+            }
+          });
+
+          reader.onLoadEnd.listen((e) {
+            try {
+              final result = reader.result;
+              if (result is List<int>) {
+                final raw = Uint8List.fromList(result);
+                if (raw.length > maxImageBytes) {
+                  if (!mounted) return;
+                  setState(() {
+                    _scanError = 'Ukuran foto terlalu besar (maks 8 MB)';
+                    _scanInfo = null;
+                  });
+                  return;
+                }
+                final bytes = PhotoTools.prepareForUpload(raw);
+                if (!mounted) return;
+                _setPhoto(bytes);
+              }
+            } catch (err, stack) {
+              debugPrint('Error saat memproses data gambar: $err\n$stack');
+              if (mounted) {
+                setState(() => _scanError = 'Gagal memproses gambar kamera: $err');
+              }
+            }
+          });
+
+          reader.readAsArrayBuffer(file);
+        } catch (err, stack) {
+          debugPrint('Error onChange file input: $err\n$stack');
+          if (mounted) {
+            setState(() => _scanError = 'Gagal mengambil gambar dari kamera.');
+          }
+        }
+      });
+    } catch (e, stack) {
+      debugPrint('Error direct camera web: $e\n$stack');
+      _pickImage(ImageSource.camera);
+    }
+  }
+
   /// Tombol KAMERA: potret dari kamera live (dengan kotak panduan).
-  /// Kalau kamera live tidak bisa dipakai, buka kamera bawaan HP.
+  /// Kalau kamera live tidak bisa dipakai (mis. browser web HTTP), buka kamera bawaan HP langsung.
   void _onKameraPressed() {
     if (_scanning) return;
     if (_imageBytes != null) {
-      // Foto sudah ada: kembali ke kamera live untuk foto ulang
+      // Foto sudah ada: kembali ke kamera untuk foto ulang
       _clearImage();
       if (!_cameraUnavailable) return;
     }
     final cam = _camKey.currentState;
-    if (!_cameraUnavailable && cam != null) {
-      if (cam.isReady) cam.capture();
+    if (!_cameraUnavailable && cam != null && cam.isReady) {
+      cam.capture();
       return;
     }
-    _pickImage(ImageSource.camera);
+    if (kIsWeb) {
+      _pickImageDirectCameraWeb();
+    } else {
+      _pickImage(ImageSource.camera);
+    }
   }
 
   void _clearImage() {
@@ -336,22 +451,15 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       final json = await _decode(response);
       final data = _toMap(json['data']);
 
-      // 1. Ekstraksi kolom utama
+      // 1. Ekstraksi kolom utama untuk formulir
       _ctrl['nama']!.text = _str(data['nama']);
       _ctrl['nik']!.text = _str(data['nik']).replaceAll(RegExp(r'\D'), '');
-      _ctrl['alamat']!.text = _str(data['alamat']);
-      if (_ctrl['no_kavling']!.text.isEmpty && data['no_kavling'] != null) {
+      _ctrl['alamat']!.text = _cleanAddress(_str(data['alamat']));
+      if (_ctrl['no_kavling'] != null && _ctrl['no_kavling']!.text.isEmpty && data['no_kavling'] != null) {
         _ctrl['no_kavling']!.text = _str(data['no_kavling']);
       }
 
-      // 2. Ekstraksi kolom pendukung hasil pembacaan AI CRM
-      _ctrl['jenis_kelamin']!.text = _str(data['jenis_kelamin']);
-      _ctrl['tanggal_lahir']!.text = _str(data['tanggal_lahir']);
-      _ctrl['pekerjaan']!.text = _str(data['pekerjaan']);
-      _ctrl['kewarganegaraan']!.text = _str(data['kewarganegaraan']);
-      _ctrl['berlaku_hingga']!.text = _str(data['berlaku_hingga']);
-
-      // 3. Simpan metadata & hasil teknis
+      // 2. Simpan semua data pendukung hasil OCR ke dalam metadata
       final rawMeta = _toMap(data['metadata']);
       final meta = Map<String, dynamic>.from(rawMeta);
       meta['jenis_kelamin'] = _str(data['jenis_kelamin']);
@@ -359,6 +467,12 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       meta['pekerjaan'] = _str(data['pekerjaan']);
       meta['kewarganegaraan'] = _str(data['kewarganegaraan']);
       meta['berlaku_hingga'] = _str(data['berlaku_hingga']);
+      if (data['agama'] != null && _str(data['agama']).isNotEmpty) {
+        meta['agama'] = _str(data['agama']);
+      }
+      if (data['status_perkawinan'] != null && _str(data['status_perkawinan']).isNotEmpty) {
+        meta['status_perkawinan'] = _str(data['status_perkawinan']);
+      }
 
       if (!mounted) return;
       setState(() {
@@ -371,19 +485,45 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _formKey.currentState?.validate();
       });
-    } on TimeoutException {
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException OCR: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = 'Waktu habis. Proses OCR AI membutuhkan waktu lebih lama. Coba lagi.';
+        _scanError = 'Waktu habis. Proses OCR AI membutuhkan waktu lebih lama. Silakan coba lagi.';
       });
-    } catch (e) {
-      debugPrint('Error OCR: $e');
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException OCR: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = e.toString().replaceFirst('Exception: ', '');
+        _scanError = 'Gagal terhubung ke server OCR. Pastikan perangkat terhubung ke jaringan.';
       });
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException OCR: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _scanError = e.message;
+      });
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException OCR: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _scanError = 'Format respons OCR tidak sesuai format data.';
+      });
+    } catch (e, stack) {
+      debugPrint('Error OCR tidak terduga: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _scanning = false;
+        _scanError = 'Terjadi kesalahan sistem saat memproses KTP. Silakan coba lagi.';
+      });
+    } finally {
+      if (mounted && _scanning) {
+        setState(() => _scanning = false);
+      }
     }
   }
 
@@ -403,10 +543,19 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     setState(() => _saving = true);
 
     try {
+      String? fotoKtpPayload;
+      if (_imageBytes != null) {
+        try {
+          final compactBytes = PhotoTools.prepareForStorage(_imageBytes!);
+          fotoKtpPayload = 'data:image/jpeg;base64,${base64Encode(compactBytes)}';
+        } catch (e, stack) {
+          debugPrint('Gagal menyiapkan foto untuk penyimpanan: $e\n$stack');
+        }
+      }
+
       final payload = <String, dynamic>{
         for (final f in _fields) f.key: _ctrl[f.key]!.text.trim(),
-        if (_imageBytes != null)
-          'foto_ktp': 'data:image/jpeg;base64,${base64Encode(_imageBytes!)}',
+        if (fotoKtpPayload != null) 'foto_ktp': fotoKtpPayload,
         'metadata': _metadata,
       };
 
@@ -444,11 +593,21 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       _resetForm();
       _clearImage();
       _fetchList();
-    } on TimeoutException {
-      _snack('Waktu habis saat menyimpan, coba lagi');
-    } catch (e) {
-      debugPrint('Error simpan KTP: $e');
-      _snack(e.toString().replaceFirst('Exception: ', ''));
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException simpan: $e\n$stack');
+      _snack('Waktu koneksi habis saat menyimpan. Silakan coba lagi.');
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException simpan: $e\n$stack');
+      _snack('Gagal menghubungi server database. Periksa koneksi jaringan Anda.');
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException simpan: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      _snack(e.message);
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException simpan: $e\n$stack');
+      _snack('Format data penyimpanan tidak valid.');
+    } catch (e, stack) {
+      debugPrint('Error simpan KTP tidak terduga: $e\n$stack');
+      _snack('Terjadi kesalahan sistem saat menyimpan data KTP.');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -506,13 +665,45 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
         _totalPages = totalPages < 1 ? 1 : totalPages;
         _loadingList = false;
       });
-    } catch (e) {
-      debugPrint('Error ambil daftar KTP: $e');
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException fetch list: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _loadingList = false;
-        _listError = e.toString().replaceFirst('Exception: ', '');
+        _listError = 'Waktu koneksi habis saat memuat daftar data.';
       });
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException fetch list: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = 'Koneksi ke server terputus. Pastikan perangkat terhubung.';
+      });
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException fetch list: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = e.message;
+      });
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException fetch list: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = 'Data daftar tidak valid.';
+      });
+    } catch (e, stack) {
+      debugPrint('Error ambil daftar KTP tidak terduga: $e\n$stack');
+      if (!mounted) return;
+      setState(() {
+        _loadingList = false;
+        _listError = 'Gagal memuat data pengunjung. Silakan coba lagi.';
+      });
+    } finally {
+      if (mounted && _loadingList) {
+        setState(() => _loadingList = false);
+      }
     }
   }
 
@@ -555,10 +746,21 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       final json = await _decode(response);
       _snack(_msg(json) ?? 'Checkout berhasil', error: false);
       await _fetchList(page: _page);
-    } on TimeoutException {
-      _snack('Waktu habis saat checkout, coba lagi');
-    } catch (e) {
-      _snack(e.toString().replaceFirst('Exception: ', ''));
+    } on TimeoutException catch (e, stack) {
+      debugPrint('TimeoutException checkout: $e\n$stack');
+      _snack('Waktu koneksi habis saat checkout. Silakan coba lagi.');
+    } on http.ClientException catch (e, stack) {
+      debugPrint('ClientException checkout: $e\n$stack');
+      _snack('Koneksi terputus saat checkout. Periksa jaringan Anda.');
+    } on ApiException catch (e, stack) {
+      debugPrint('ApiException checkout: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      _snack(e.message);
+    } on FormatException catch (e, stack) {
+      debugPrint('FormatException checkout: $e\n$stack');
+      _snack('Format respons checkout tidak valid.');
+    } catch (e, stack) {
+      debugPrint('Error checkout: $e\n$stack');
+      _snack('Gagal memproses checkout tamu. Silakan coba lagi.');
     } finally {
       if (mounted) setState(() => _busyIds.remove(id));
     }
@@ -687,18 +889,43 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
               child: _imageBytes != null
                   ? Image.memory(_imageBytes!, fit: BoxFit.contain)
                   : _cameraUnavailable
-                      ? const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.badge_outlined,
-                                  size: 56, color: Colors.white70),
-                              SizedBox(height: 8),
-                              Text(
-                                'Belum ada foto KTP',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            ],
+                      ? InkWell(
+                          onTap: _onKameraPressed,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.photo_camera_rounded,
+                                    size: 42,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                const Text(
+                                  'Ketuk untuk Buka Kamera',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Atau gunakan tombol KAMERA di bawah',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : KtpCameraView(
@@ -711,7 +938,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                             if (!mounted) return;
                             setState(() {
                               _cameraUnavailable = true;
-                              _scanError = msg;
+                              // Tidak mengisi _scanError saat inisialisasi awal
+                              // agar tidak memunculkan kesan error saat pengguna baru membuka halaman
                             });
                           },
                         ),
@@ -754,15 +982,6 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
-                      ),
-                    ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Mohon tunggu sebentar, AI sedang mengekstrak data...',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
                       ),
                     ),
                   ],
@@ -847,9 +1066,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
           borderRadius: BorderRadius.circular(16),
         ),
         child: Text(
-          _imageBytes == null && !_cameraUnavailable
-              ? 'Posisikan seluruh KTP di dalam kotak kuning, pegang HP sejajar dengan kartu, lalu tekan KAMERA'
-              : 'Foto KTP tegak lurus, cahaya cukup, tanpa pantulan, dan seluruh sisi kartu terlihat supaya hasil OCR akurat',
+          _imageBytes != null
+              ? 'Foto siap diproses. Tekan "Baca KTP" di atas untuk memindai data.'
+              : !_cameraUnavailable
+                  ? 'Posisikan seluruh KTP di dalam kotak kuning, pegang HP sejajar dengan kartu, lalu tekan KAMERA'
+                  : 'Pegang KTP tegak lurus, cahaya cukup. Tekan KAMERA untuk memotret atau PILIH FILE dari galeri',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.white70, fontSize: 15),
         ),
@@ -923,36 +1144,6 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
               },
             ),
           ),
-          if (_metadata.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Theme(
-              data:
-                  Theme.of(context).copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: EdgeInsets.zero,
-                title: const Text(
-                  'Data tambahan hasil OCR',
-                  style: TextStyle(fontSize: 14, color: Colors.black54),
-                ),
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: SelectableText(
-                      _metadata.entries
-                          .map((e) => '${e.key}: ${_str(e.value)}')
-                          .join('\n'),
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
           const SizedBox(height: 20),
           Wrap(
             alignment: WrapAlignment.end,
@@ -1046,9 +1237,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
             }
           }
           if (f.key == 'nama' && t.isEmpty) return 'Nama wajib diisi';
-          if (f.key == 'no_kavling' && t.isEmpty) {
-            return 'No. Kavling tujuan wajib diisi';
-          }
+          // no_kavling dan alamat opsional -> tidak memblokir simpan
           return null;
         },
       ),

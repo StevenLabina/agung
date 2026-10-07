@@ -187,12 +187,17 @@ class PhotoTools {
   }
 
   /// Siapkan foto untuk diunggah: putar sesuai EXIF (foto kamera HP sering "miring"
-  /// di metadata), kecilkan sisi terpanjang, lalu simpan sebagai JPEG.
+  /// di metadata), kecilkan sisi terpanjang bila perlu, lalu simpan sebagai JPEG.
   static Uint8List prepareForUpload(
     Uint8List bytes, {
-    int maxSide = 1600,
-    int quality = 88,
+    int maxSide = 1200,
+    int quality = 85,
   }) {
+    // Fast path: Jika gambar sudah kecil (<= 400 KB), langsung gunakan tanpa decode ulang berat
+    if (bytes.length <= 400 * 1024) {
+      return bytes;
+    }
+
     final decoded = img.decodeImage(bytes);
     if (decoded == null) return bytes;
 
@@ -204,5 +209,34 @@ class PhotoTools {
           : img.copyResize(image, height: maxSide);
     }
     return Uint8List.fromList(img.encodeJpg(image, quality: quality));
+  }
+
+  /// Siapkan foto untuk penyimpanan database (dikompresi ke dimensi wajar
+  /// agar base64 tidak melebihi batas body server 1MB).
+  static Uint8List prepareForStorage(
+    Uint8List bytes, {
+    int maxSide = 720,
+    int quality = 70,
+  }) {
+    // Fast path: Jika gambar sudah berukuran wajar (<= 250 KB), tidak perlu kompresi ulang
+    if (bytes.length <= 250 * 1024) {
+      return bytes;
+    }
+
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return bytes;
+
+    var image = img.bakeOrientation(decoded);
+    final longest = math.max(image.width, image.height);
+    if (longest > maxSide) {
+      image = image.width >= image.height
+          ? img.copyResize(image, width: maxSide)
+          : img.copyResize(image, height: maxSide);
+    }
+    var compressed = Uint8List.fromList(img.encodeJpg(image, quality: quality));
+    if (compressed.length > 350 * 1024) {
+      compressed = Uint8List.fromList(img.encodeJpg(image, quality: 50));
+    }
+    return compressed;
   }
 }

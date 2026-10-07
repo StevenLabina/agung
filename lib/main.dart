@@ -17,7 +17,15 @@ import 'package:http/http.dart' as http;
 import 'package:iuran_rt_web/screens/login.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await dotenv.load(fileName: ".env");
+  } catch (e) {
+    debugPrint("Info: .env file tidak ditemukan atau gagal dimuat: $e");
+  }
   SpellCheckConfiguration.disabled();
 
   runApp(const MyApp());

@@ -154,20 +154,20 @@ if ($path === '/api/ocr/scan' && $method === 'POST') {
     $controller->scan();
 }
 
-// 4. CRUD KTP: GET /api/ktp (List Data)
-if ($path === '/api/ktp' && $method === 'GET') {
+// 4. CRUD KTP: GET /api/ktp atau /ktp (List Data)
+if (($path === '/api/ktp' || $path === '/ktp') && $method === 'GET') {
     $controller = new KtpController();
     $controller->index();
 }
 
-// 5. CRUD KTP: POST /api/ktp (Tambah Data Manual)
-if ($path === '/api/ktp' && $method === 'POST') {
+// 5. CRUD KTP: POST /api/ktp atau /ktp (Tambah Data Manual)
+if (($path === '/api/ktp' || $path === '/ktp') && $method === 'POST') {
     $controller = new KtpController();
     $controller->store();
 }
 
-// 6. Routing dengan Parameter ID: /api/ktp/{id}
-if (preg_match('#^/api/ktp/([0-9]+)$#', $path, $matches)) {
+// 6. Routing dengan Parameter ID: /api/ktp/{id} atau /ktp/{id}
+if (preg_match('#^/(?:api/)?ktp/([0-9]+)$#', $path, $matches)) {
     $id = (int)$matches[1];
     $controller = new KtpController();
 
@@ -182,15 +182,15 @@ if (preg_match('#^/api/ktp/([0-9]+)$#', $path, $matches)) {
     }
 }
 
-// 7. Check-in Pengunjung: POST /api/ktp/{id}/checkin
-if (preg_match('#^/api/ktp/([0-9]+)/checkin$#', $path, $matches) && $method === 'POST') {
+// 7. Check-in Pengunjung: POST /api/ktp/{id}/checkin atau /ktp/{id}/checkin
+if (preg_match('#^/(?:api/)?ktp/([0-9]+)/checkin$#', $path, $matches) && $method === 'POST') {
     $id = (int)$matches[1];
     $controller = new KtpController();
     $controller->checkin($id);
 }
 
-// 8. Check-out Pengunjung: POST /api/ktp/{id}/checkout
-if (preg_match('#^/api/ktp/([0-9]+)/checkout$#', $path, $matches) && $method === 'POST') {
+// 8. Check-out Pengunjung: POST /api/ktp/{id}/checkout atau /ktp/{id}/checkout
+if (preg_match('#^/(?:api/)?ktp/([0-9]+)/checkout$#', $path, $matches) && $method === 'POST') {
     $id = (int)$matches[1];
     $controller = new KtpController();
     $controller->checkout($id);

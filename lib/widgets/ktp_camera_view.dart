@@ -25,7 +25,7 @@ class KtpCameraView extends StatefulWidget {
     this.onError,
     this.guideScale = 0.86,
     this.cropMargin = 0.04,
-    this.maxSide = 1600,
+    this.maxSide = 1080,
     this.hint = 'Posisikan seluruh KTP di dalam kotak kuning',
   });
 
@@ -83,12 +83,13 @@ class KtpCameraViewState extends State<KtpCameraView> {
 
       final controller = CameraController(
         cam,
-        ResolutionPreset.veryHigh,
+        ResolutionPreset.high,
         enableAudio: false,
       );
       try {
         await controller.initialize();
-      } catch (_) {
+      } catch (err, stack) {
+        debugPrint('Controller initialize error: $err\n$stack');
         await controller.dispose();
         rethrow;
       }
@@ -116,8 +117,8 @@ class KtpCameraViewState extends State<KtpCameraView> {
               ? 'Kamera sedang dipakai aplikasi/tab lain. Tutup aplikasi itu '
                   'lalu muat ulang halaman, atau gunakan "Pilih File".'
               : 'Kamera tidak dapat dibuka. Gunakan "Pilih File".');
-    } catch (e) {
-      debugPrint('Error init kamera: $e');
+    } catch (e, stack) {
+      debugPrint('Error init kamera tidak terduga: $e\n$stack');
       _fail('Kamera tidak dapat dibuka. Gunakan "Pilih File".');
     }
   }
@@ -153,8 +154,8 @@ class KtpCameraViewState extends State<KtpCameraView> {
       );
       debugPrint('Foto kamera: ${raw.length} B -> crop ${out.length} B');
       if (mounted) widget.onCaptured(out);
-    } catch (e) {
-      debugPrint('Gagal memotret: $e');
+    } catch (e, stack) {
+      debugPrint('Gagal memotret: $e\n$stack');
       widget.onError?.call('Gagal mengambil foto, coba lagi.');
     } finally {
       if (mounted) setState(() => _busy = false);
