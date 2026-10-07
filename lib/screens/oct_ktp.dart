@@ -56,8 +56,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // =========================================================
   // KONFIGURASI API
   // =========================================================
-  // ApiUrls.baseUrl untuk database buku tamu (GET list, POST simpan, PUT /{id})
-  String get _base => ApiUrls.baseUrl;
+  // Otomatis sesuai environment (lokal -> port 8000 / MySQL demo_ocr_ktp; produksi -> server cloud)
+  String get _base => ApiUrls.ktpBaseUrl;
 
   // Endpoint API OCR KTP (CRM Apikko)
   String get _crmOcrUrl => ApiUrls.crmOcrUrl;
@@ -547,10 +547,19 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     setState(() => _saving = true);
 
     try {
+      String? fotoKtpPayload;
+      if (_imageBytes != null) {
+        try {
+          final compactBytes = PhotoTools.prepareForStorage(_imageBytes!);
+          fotoKtpPayload = 'data:image/jpeg;base64,${base64Encode(compactBytes)}';
+        } catch (e, stack) {
+          debugPrint('Gagal menyiapkan foto untuk penyimpanan: $e\n$stack');
+        }
+      }
+
       final payload = <String, dynamic>{
         for (final f in _fields) f.key: _ctrl[f.key]!.text.trim(),
-        if (_imageBytes != null)
-          'foto_ktp': 'data:image/jpeg;base64,${base64Encode(_imageBytes!)}',
+        if (fotoKtpPayload != null) 'foto_ktp': fotoKtpPayload,
         'metadata': _metadata,
       };
 

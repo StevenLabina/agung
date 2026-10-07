@@ -1,3 +1,6 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
 class ApiUrls {
   static const String baseUrl = "https://trr08-api.rukuntetangga.net/";
   //static const String baseUrl = "http://localhost/wirausaha/";
@@ -6,16 +9,45 @@ class ApiUrls {
   //jalankan ngrok: ngrok http 3000
   //token: eMj5BcZjSs6qtDEhooufqS:APA91bHNASadUuqgrbuEvjs0lgqg7MLDq9xGXaBleIxD_FEefk5Ub3CfZMaHLbn0J6FmUza0VzMiaRjDFdtmeT7J05bEeII_-HWxaDEMEu4hZ-Il0J-EOvI
 
-  /// Endpoint OCR KTP ke backend CRM
-  /// Default production: https://crm.apikkedu.com/api/ocr/ktp
-  /// Pengujian lokal (php artisan serve): http://127.0.0.1:8000/api/ocr/ktp
-  static const String crmOcrUrl = "https://crm.apikkedu.com/api/ocr/ktp";
+  /// Endpoint OCR KTP ke backend CRM (dibaca dari .env)
+  static String get crmOcrUrl =>
+      dotenv.env['CRM_OCR_URL'] ??
+      const String.fromEnvironment(
+        'CRM_OCR_URL',
+        defaultValue: "https://crm.apikkedu.com/api/ocr/ktp",
+      );
 
-  /// API Key otentikasi OCR KTP CRM (header X-API-KEY)
-  /// Default server produksi: apikko_cust_secret_access_key_2026
-  /// Default environment lokal .env: apikko-t40-internal-backup-key
-  static const String crmApiKey = "apikko_cust_secret_access_key_2026";
-  static const String crmFallbackApiKey = "apikko-t40-internal-backup-key";
+  /// API Key otentikasi OCR KTP CRM (header X-API-KEY) dibaca dari .env
+  static String get crmApiKey =>
+      dotenv.env['CRM_API_KEY'] ??
+      const String.fromEnvironment('CRM_API_KEY', defaultValue: '');
+
+  static String get crmFallbackApiKey =>
+      dotenv.env['CRM_FALLBACK_API_KEY'] ??
+      const String.fromEnvironment('CRM_FALLBACK_API_KEY', defaultValue: '');
+
+  /// Base URL database KTP/buku tamu yang otomatis menyesuaikan environment:
+  /// - Jika running lokal (web browser localhost/127.0.0.1/IP LAN, atau debug mode):
+  ///   menggunakan backend lokal (port 8000) yang terhubung ke MySQL database ocr_ktp (tabel demo_ocr_ktp).
+  /// - Jika running di produksi (misal domain trr08.rukuntetangga.net):
+  ///   menggunakan server hosting produksi (baseUrl).
+  static String get ktpBaseUrl {
+    if (kIsWeb) {
+      final host = Uri.base.host;
+      final isLocal = host == 'localhost' ||
+          host == '127.0.0.1' ||
+          host.startsWith('192.168.') ||
+          host.startsWith('10.') ||
+          host.startsWith('172.');
+      if (isLocal) {
+        final targetHost = host.isEmpty ? '127.0.0.1' : host;
+        return "http://$targetHost:8000/";
+      }
+    } else if (kDebugMode) {
+      return "http://127.0.0.1:8000/";
+    }
+    return baseUrl;
+  }
 }
 
 class KodeRt {

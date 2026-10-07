@@ -205,4 +205,28 @@ class PhotoTools {
     }
     return Uint8List.fromList(img.encodeJpg(image, quality: quality));
   }
+
+  /// Siapkan foto untuk penyimpanan database (dikompresi ke dimensi wajar
+  /// agar base64 tidak melebihi batas body server 1MB).
+  static Uint8List prepareForStorage(
+    Uint8List bytes, {
+    int maxSide = 720,
+    int quality = 70,
+  }) {
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return bytes;
+
+    var image = img.bakeOrientation(decoded);
+    final longest = math.max(image.width, image.height);
+    if (longest > maxSide) {
+      image = image.width >= image.height
+          ? img.copyResize(image, width: maxSide)
+          : img.copyResize(image, height: maxSide);
+    }
+    var compressed = Uint8List.fromList(img.encodeJpg(image, quality: quality));
+    if (compressed.length > 350 * 1024) {
+      compressed = Uint8List.fromList(img.encodeJpg(image, quality: 50));
+    }
+    return compressed;
+  }
 }
