@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:iuran_rt_web/url.dart';
 import 'package:iuran_rt_web/utils/photo_quality.dart';
 import 'package:iuran_rt_web/widgets/ktp_camera_view.dart';
+import 'package:universal_html/html.dart' as html;
 
 /// Kolom form. [key] = nama field yang dikirim ke backend (PUT /api/ktp/{id}).
 class _KtpField {
@@ -236,21 +237,64 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     });
   }
 
+  /// Buka kamera HP secara langsung pada browser web (tanpa masuk ke file picker)
+  Future<void> _pickImageDirectCameraWeb() async {
+    if (_scanning) return;
+    try {
+      final uploadInput = html.FileUploadInputElement();
+      uploadInput.accept = 'image/*';
+      uploadInput.setAttribute('capture', 'environment'); // Memicu aplikasi kamera belakang langsung
+      uploadInput.click();
+
+      uploadInput.onChange.listen((e) {
+        final files = uploadInput.files;
+        if (files == null || files.isEmpty) return;
+        final file = files[0];
+        final reader = html.FileReader();
+        reader.readAsArrayBuffer(file);
+        reader.onLoadEnd.listen((e) {
+          final result = reader.result;
+          if (result is List<int>) {
+            final raw = Uint8List.fromList(result);
+            if (raw.length > maxImageBytes) {
+              if (!mounted) return;
+              setState(() {
+                _scanError = 'Ukuran foto terlalu besar (maks 8 MB)';
+                _scanInfo = null;
+              });
+              return;
+            }
+            final bytes = PhotoTools.prepareForUpload(raw);
+            if (!mounted) return;
+            _setPhoto(bytes);
+          }
+        });
+      });
+    } catch (e) {
+      debugPrint('Error direct camera web: $e');
+      _pickImage(ImageSource.camera);
+    }
+  }
+
   /// Tombol KAMERA: potret dari kamera live (dengan kotak panduan).
-  /// Kalau kamera live tidak bisa dipakai, buka kamera bawaan HP.
+  /// Kalau kamera live tidak bisa dipakai (mis. browser web HTTP), buka kamera bawaan HP langsung.
   void _onKameraPressed() {
     if (_scanning) return;
     if (_imageBytes != null) {
-      // Foto sudah ada: kembali ke kamera live untuk foto ulang
+      // Foto sudah ada: kembali ke kamera untuk foto ulang
       _clearImage();
       if (!_cameraUnavailable) return;
     }
     final cam = _camKey.currentState;
-    if (!_cameraUnavailable && cam != null) {
-      if (cam.isReady) cam.capture();
+    if (!_cameraUnavailable && cam != null && cam.isReady) {
+      cam.capture();
       return;
     }
-    _pickImage(ImageSource.camera);
+    if (kIsWeb) {
+      _pickImageDirectCameraWeb();
+    } else {
+      _pickImage(ImageSource.camera);
+    }
   }
 
   void _clearImage() {
@@ -687,18 +731,43 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
               child: _imageBytes != null
                   ? Image.memory(_imageBytes!, fit: BoxFit.contain)
                   : _cameraUnavailable
-                      ? const Center(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.badge_outlined,
-                                  size: 56, color: Colors.white70),
-                              SizedBox(height: 8),
-                              Text(
-                                'Belum ada foto KTP',
-                                style: TextStyle(color: Colors.white70),
-                              ),
-                            ],
+                      ? InkWell(
+                          onTap: _onKameraPressed,
+                          child: Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(14),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.12),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.photo_camera_rounded,
+                                    size: 42,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                const Text(
+                                  'Ketuk untuk Buka Kamera',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Atau gunakan tombol KAMERA di bawah',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         )
                       : KtpCameraView(
@@ -711,7 +780,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                             if (!mounted) return;
                             setState(() {
                               _cameraUnavailable = true;
-                              _scanError = msg;
+                              // Tidak mengisi _scanError saat inisialisasi awal
+                              // agar tidak memunculkan kesan error saat pengguna baru membuka halaman
                             });
                           },
                         ),
@@ -849,7 +919,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
         child: Text(
           _imageBytes == null && !_cameraUnavailable
               ? 'Posisikan seluruh KTP di dalam kotak kuning, pegang HP sejajar dengan kartu, lalu tekan KAMERA'
-              : 'Foto KTP tegak lurus, cahaya cukup, tanpa pantulan, dan seluruh sisi kartu terlihat supaya hasil OCR akurat',
+              : 'Pegang KTP tegak lurus, cahaya cukup. Tekan KAMERA untuk memotret atau PILIH FILE dari galeri',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Colors.white70, fontSize: 15),
         ),
