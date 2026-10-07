@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -206,13 +207,24 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   void _setPhoto(Uint8List bytes) {
     final q = PhotoTools.analyze(bytes);
     debugPrint('Kualitas foto: tajam=${q.sharpness.toStringAsFixed(0)} '
+        'teks=${q.textSharpness.toStringAsFixed(2)} '
         'terang=${q.brightness.toStringAsFixed(0)} '
         'glare=${(q.glareRatio * 100).toStringAsFixed(1)}% ok=${q.ok}');
     setState(() {
       _imageBytes = bytes;
       _imageName = 'ktp.jpg';
-      _scanError = q.ok ? null : q.message;
-      _scanInfo = null;
+      _scanError = q.ok
+          ? null
+          : kDebugMode
+              ? '${q.message} (tajam=${q.sharpness.toStringAsFixed(0)}, '
+                  'teks=${q.textSharpness.toStringAsFixed(2)})'
+              : q.message;
+      // Mode debug saja: tampilkan skor supaya ambang batas bisa dikalibrasi di HP
+      _scanInfo = (kDebugMode && q.ok)
+          ? 'Foto baik (tajam=${q.sharpness.toStringAsFixed(0)}, '
+              'teks=${q.textSharpness.toStringAsFixed(2)}, '
+              'terang=${q.brightness.toStringAsFixed(0)})'
+          : null;
     });
   }
 
