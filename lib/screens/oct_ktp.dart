@@ -57,16 +57,12 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   static const String endpointKtp = 'ktp'; // GET list, POST baru, PUT /{id}, POST /{id}/checkout
   static const String fieldFoto = 'image'; // field file multipart untuk POST /api/ocr/ktp
 
-  // Kolom yang ditampilkan dan diedit (sesuai tabel demo_ocr_ktp & hasil OCR CRM)
+  // Kolom yang ditampilkan di form (Nama, NIK, No. Kavling, Alamat)
+  // Data OCR pendukung lainnya otomatis masuk ke metadata dan disimpan ke DB
   static const List<_KtpField> _fields = [
-    _KtpField('nama', 'Nama Lengkap'),
+    _KtpField('nama', 'Nama Lengkap', fullWidth: true),
     _KtpField('nik', 'NIK', keyboard: TextInputType.number, maxLength: 16),
-    _KtpField('no_kavling', 'No. Kavling Tujuan'),
-    _KtpField('jenis_kelamin', 'Jenis Kelamin'),
-    _KtpField('tanggal_lahir', 'Tanggal Lahir'),
-    _KtpField('pekerjaan', 'Pekerjaan'),
-    _KtpField('kewarganegaraan', 'Kewarganegaraan'),
-    _KtpField('berlaku_hingga', 'Masa Berlaku'),
+    _KtpField('no_kavling', 'No. Kavling Tujuan (Opsional)'),
     _KtpField('alamat', 'Alamat Lengkap', fullWidth: true),
   ];
 
@@ -137,6 +133,35 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   static String _fmtTime(dynamic v) {
     final s = _str(v);
     return s.length >= 16 ? s.substring(0, 16) : s;
+  }
+
+  /// Membersihkan alamat hasil OCR dari duplikasi kelurahan/kecamatan dan kebocoran teks agama/status
+  static String _cleanAddress(String raw) {
+    if (raw.trim().isEmpty) return '';
+    var text = raw.trim();
+
+    // 1. Buang kata-kata agama dan status perkawinan yang bocor di akhir teks alamat
+    final bleedRegex = RegExp(
+      r'[\s,\.\-:]*(?:ISLAM|KRISTEN|KATHOLIK|KATOLIK|HINDU|BUDHA|BUDDHA|KONGHUCU|PENGHAYAT|KAWIN|BELUM\s+KAWIN|CERAI\s+HIDUP|CERAI\s+MATI|WIRASWASTA|PEKERJAAN|AGAMA|STATUS)[\s\S]*$',
+      caseSensitive: false,
+    );
+    text = text.replaceAll(bleedRegex, '');
+
+    // 2. Buang label ALAMAT yang bocor di tengah
+    text = text.replaceAll(RegExp(r'[\s,]+ALAMAT\b', caseSensitive: false), '');
+
+    // 3. Dedup segmen koma (mis. KEC. A WONOASIH muncul 2 kali)
+    final parts = text.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+    final deduped = <String>[];
+    final seen = <String>{};
+    for (final p in parts) {
+      final norm = p.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+      if (norm.isNotEmpty && !seen.contains(norm)) {
+        seen.add(norm);
+        deduped.add(p);
+      }
+    }
+    return deduped.join(', ');
   }
 
   static MediaType _mediaType(String name) {
@@ -380,22 +405,15 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       final json = await _decode(response);
       final data = _toMap(json['data']);
 
-      // 1. Ekstraksi kolom utama
+      // 1. Ekstraksi kolom utama untuk formulir
       _ctrl['nama']!.text = _str(data['nama']);
       _ctrl['nik']!.text = _str(data['nik']).replaceAll(RegExp(r'\D'), '');
-      _ctrl['alamat']!.text = _str(data['alamat']);
-      if (_ctrl['no_kavling']!.text.isEmpty && data['no_kavling'] != null) {
+      _ctrl['alamat']!.text = _cleanAddress(_str(data['alamat']));
+      if (_ctrl['no_kavling'] != null && _ctrl['no_kavling']!.text.isEmpty && data['no_kavling'] != null) {
         _ctrl['no_kavling']!.text = _str(data['no_kavling']);
       }
 
-      // 2. Ekstraksi kolom pendukung hasil pembacaan AI CRM
-      _ctrl['jenis_kelamin']!.text = _str(data['jenis_kelamin']);
-      _ctrl['tanggal_lahir']!.text = _str(data['tanggal_lahir']);
-      _ctrl['pekerjaan']!.text = _str(data['pekerjaan']);
-      _ctrl['kewarganegaraan']!.text = _str(data['kewarganegaraan']);
-      _ctrl['berlaku_hingga']!.text = _str(data['berlaku_hingga']);
-
-      // 3. Simpan metadata & hasil teknis
+      // 2. Simpan semua data pendukung hasil OCR ke dalam metadata
       final rawMeta = _toMap(data['metadata']);
       final meta = Map<String, dynamic>.from(rawMeta);
       meta['jenis_kelamin'] = _str(data['jenis_kelamin']);
@@ -403,6 +421,12 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       meta['pekerjaan'] = _str(data['pekerjaan']);
       meta['kewarganegaraan'] = _str(data['kewarganegaraan']);
       meta['berlaku_hingga'] = _str(data['berlaku_hingga']);
+      if (data['agama'] != null && _str(data['agama']).isNotEmpty) {
+        meta['agama'] = _str(data['agama']);
+      }
+      if (data['status_perkawinan'] != null && _str(data['status_perkawinan']).isNotEmpty) {
+        meta['status_perkawinan'] = _str(data['status_perkawinan']);
+      }
 
       if (!mounted) return;
       setState(() {
@@ -826,15 +850,6 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                         fontSize: 16,
                       ),
                     ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Mohon tunggu sebentar, AI sedang mengekstrak data...',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 13,
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -1116,9 +1131,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
             }
           }
           if (f.key == 'nama' && t.isEmpty) return 'Nama wajib diisi';
-          if (f.key == 'no_kavling' && t.isEmpty) {
-            return 'No. Kavling tujuan wajib diisi';
-          }
+          // no_kavling dan alamat opsional -> tidak memblokir simpan
           return null;
         },
       ),

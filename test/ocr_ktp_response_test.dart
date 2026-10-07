@@ -66,5 +66,36 @@ void main() {
       expect(valJson['success'], isFalse);
       expect(valJson['message'], contains('Foto KTP wajib diunggah'));
     });
+
+    test('KTP address cleaning eliminates duplicates and bleeding religion/status', () {
+      const rawAddress = 'JL MASTRIP, RT 004/001, KEL. WONOASIH, KEC. A WONOASIH ALAMAT, KEC. A WONOASIH . KATHOLIK';
+
+      // 1. Buang kata-kata agama dan status perkawinan di ujung alamat
+      final bleedRegex = RegExp(
+        r'[\s,\.\-:]*(?:ISLAM|KRISTEN|KATHOLIK|KATOLIK|HINDU|BUDHA|BUDDHA|KONGHUCU|PENGHAYAT|KAWIN|BELUM\s+KAWIN|CERAI\s+HIDUP|CERAI\s+MATI|WIRASWASTA|PEKERJAAN|AGAMA|STATUS)[\s\S]*$',
+        caseSensitive: false,
+      );
+      var text = rawAddress.replaceAll(bleedRegex, '');
+
+      // 2. Buang label ALAMAT liar di tengah teks
+      text = text.replaceAll(RegExp(r'[\s,]+ALAMAT\b', caseSensitive: false), '');
+
+      // 3. Dedup segmen koma
+      final parts = text.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+      final deduped = <String>[];
+      final seen = <String>{};
+      for (final p in parts) {
+        final norm = p.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').toUpperCase();
+        if (norm.isNotEmpty && !seen.contains(norm)) {
+          seen.add(norm);
+          deduped.add(p);
+        }
+      }
+      final clean = deduped.join(', ');
+
+      expect(clean, equals('JL MASTRIP, RT 004/001, KEL. WONOASIH, KEC. A WONOASIH'));
+      expect(clean.contains('KATHOLIK'), isFalse);
+      expect(clean.contains('ALAMAT'), isFalse);
+    });
   });
 }
