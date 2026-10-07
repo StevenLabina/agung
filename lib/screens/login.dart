@@ -4,7 +4,7 @@ import 'package:auto_size_text/auto_size_text.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:iuran_rt_web/screens/log_akses_perumahan.dart';
-import 'package:iuran_rt_web/screens/oct_ktp.dart';
+import 'package:iuran_rt_web/screens/ocr_ktp.dart';
 
 import 'package:iuran_rt_web/url.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -38,7 +38,7 @@ class _LoginState extends State<Login> {
   bool _loading = false;
   Map<String, bool> isDisabled = {};
   List<dynamic> _keluhanData = [];
- Timer? _logoutTimer;
+  Timer? _logoutTimer;
   bool isLoading = true;
   String errorMessage = '';
   Map<String, TextEditingController> jawabanControllers = {};
@@ -50,13 +50,13 @@ class _LoginState extends State<Login> {
     super.initState();
     fetchKeluhanData();
   }
-Future<void> tambahLogAktivitas({
+
+  Future<void> tambahLogAktivitas({
     required String aktivitas,
-    
   }) async {
     final Uri url = Uri.parse('${ApiUrls.baseUrl}/tambah_log_aktivitas.php');
- final prefs = await SharedPreferences.getInstance();
-      int? idUser = prefs.getInt("idUser");
+    final prefs = await SharedPreferences.getInstance();
+    int? idUser = prefs.getInt("idUser");
     try {
       final response = await http.post(
         url,
@@ -70,7 +70,6 @@ Future<void> tambahLogAktivitas({
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
         if (result['success'] == true) {
-          
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -88,222 +87,212 @@ Future<void> tambahLogAktivitas({
       );
     }
   }
- Future<void> doLogin() async {
-  setState(() {
-    _loading = true;
-  });
 
-  try {
-    print(
-      'Attempting login with username: $username and password: $password',
-    );
+  Future<void> doLogin() async {
+    setState(() {
+      _loading = true;
+    });
 
-    final response = await http.post(
-      Uri.parse("${ApiUrls.baseUrl}/login.php"),
-      body: {
-        'no_kavling': username,
-        'password': password,
-        'id_rt': KodeRt.kodeRt,
-      },
-    );
+    try {
+      print(
+        'Attempting login with username: $username and password: $password',
+      );
 
-    print('Status code: ${response.statusCode}');
-    print('Response body: ${response.body}');
+      final response = await http.post(
+        Uri.parse("${ApiUrls.baseUrl}/login.php"),
+        body: {
+          'no_kavling': username,
+          'password': password,
+          'id_rt': KodeRt.kodeRt,
+        },
+      );
 
-    if (response.statusCode == 200) {
-      Map<String, dynamic> json = jsonDecode(response.body);
+      print('Status code: ${response.statusCode}');
+      print('Response body: ${response.body}');
 
-      if (json['result'] == 'success') {
-        final prefs = await SharedPreferences.getInstance();
-        final data = json['data'];
+      if (response.statusCode == 200) {
+        Map<String, dynamic> json = jsonDecode(response.body);
 
-        // ==========================================
-        // DATA USER
-        // ==========================================
+        if (json['result'] == 'success') {
+          final prefs = await SharedPreferences.getInstance();
+          final data = json['data'];
 
-        String noKavling =
-            data['no_kavling']?.toString() ?? '';
+          // ==========================================
+          // DATA USER
+          // ==========================================
 
-        String alamatKavling =
-            data['alamat_kavling']?.toString() ?? '';
+          String noKavling = data['no_kavling']?.toString() ?? '';
 
-        String username =
-            data['nama_pemilik_rumah']?.toString() ?? '';
+          String alamatKavling = data['alamat_kavling']?.toString() ?? '';
 
-        String noTelpon =
-            data['no_telpon_pemilik_rumah']?.toString() ??
-            data['no_telpon_penanggung_jawab']?.toString() ??
-            '';
+          String username = data['nama_pemilik_rumah']?.toString() ?? '';
 
-        int idUser =
-            int.tryParse(data['id']?.toString() ?? '0') ?? 0;
+          String noTelpon = data['no_telpon_pemilik_rumah']?.toString() ??
+              data['no_telpon_penanggung_jawab']?.toString() ??
+              '';
 
-        bool isAdmin =
-            int.tryParse(
-                  data['pengurus_rt']?.toString() ?? '0',
-                ) ==
-                1;
+          int idUser = int.tryParse(data['id']?.toString() ?? '0') ?? 0;
 
-        // ==========================================
-        // AMBIL JWT
-        // ==========================================
+          bool isAdmin = int.tryParse(
+                data['pengurus_rt']?.toString() ?? '0',
+              ) ==
+              1;
 
-        String token =
-            json['token']?.toString() ?? '';
+          // ==========================================
+          // AMBIL JWT
+          // ==========================================
 
-        if (token.isEmpty) {
-          print('❌ Token JWT tidak ditemukan');
+          String token = json['token']?.toString() ?? '';
 
-          setState(() {
-            errorLogin = "Token login tidak ditemukan.";
-          });
+          if (token.isEmpty) {
+            print('❌ Token JWT tidak ditemukan');
 
-          return;
-        }
+            setState(() {
+              errorLogin = "Token login tidak ditemukan.";
+            });
 
-        // ==========================================
-        // SIMPAN DATA USER
-        // ==========================================
+            return;
+          }
 
-        await prefs.setString(
-          "noKavling",
-          noKavling,
-        );
+          // ==========================================
+          // SIMPAN DATA USER
+          // ==========================================
 
-        await prefs.setString(
-          "alamatKavling",
-          alamatKavling,
-        );
+          await prefs.setString(
+            "noKavling",
+            noKavling,
+          );
 
-        await prefs.setString(
-          "username",
-          username,
-        );
+          await prefs.setString(
+            "alamatKavling",
+            alamatKavling,
+          );
 
-        await prefs.setString(
-          "noTelpon",
-          noTelpon,
-        );
+          await prefs.setString(
+            "username",
+            username,
+          );
 
-        await prefs.setInt(
-          "idUser",
-          idUser,
-        );
+          await prefs.setString(
+            "noTelpon",
+            noTelpon,
+          );
 
-        await prefs.setBool(
-          "isAdmin",
-          isAdmin,
-        );
+          await prefs.setInt(
+            "idUser",
+            idUser,
+          );
 
-        // ==========================================
-        // SIMPAN JWT TOKEN
-        // ==========================================
+          await prefs.setBool(
+            "isAdmin",
+            isAdmin,
+          );
 
-        await prefs.setString(
-          "jwt_token",
-          token,
-        );
+          // ==========================================
+          // SIMPAN JWT TOKEN
+          // ==========================================
 
-        print("=================================");
-        print("✅ LOGIN BERHASIL");
-        print("Username  : $username");
-        print("No Kavling: $noKavling");
-        print("ID User   : $idUser");
-        print("Admin     : $isAdmin");
-        print("JWT       : Tersimpan");
-        print("Expired   : 10 menit");
-        print("=================================");
+          await prefs.setString(
+            "jwt_token",
+            token,
+          );
 
-        _loadDisabledState();
+          print("=================================");
+          print("✅ LOGIN BERHASIL");
+          print("Username  : $username");
+          print("No Kavling: $noKavling");
+          print("ID User   : $idUser");
+          print("Admin     : $isAdmin");
+          print("JWT       : Tersimpan");
+          print("Expired   : 10 menit");
+          print("=================================");
 
-        // ==========================================
-        // ADMIN
-        // ==========================================
+          _loadDisabledState();
 
-        if (isAdmin) {
-          // Mulai timer 10 menit
-          startAutoLogout();
+          // ==========================================
+          // ADMIN
+          // ==========================================
 
-          if (!mounted) return;
+          if (isAdmin) {
+            // Mulai timer 10 menit
+            startAutoLogout();
 
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => MainScreen(
-                keluhanData: _keluhanData,
+            if (!mounted) return;
+
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(
+                builder: (context) => MainScreen(
+                  keluhanData: _keluhanData,
+                ),
               ),
-            ),
-          );
+            );
 
-          await tambahLogAktivitas(
-            aktivitas:
-                "Login sistem RT Digital sebagai admin",
-          );
+            await tambahLogAktivitas(
+              aktivitas: "Login sistem RT Digital sebagai admin",
+            );
+          } else {
+            setState(() {
+              errorLogin = "Anda tidak memiliki akses untuk masuk layanan ini.";
+            });
+          }
         } else {
           setState(() {
-            errorLogin =
-                "Anda tidak memiliki akses untuk masuk layanan ini.";
+            errorLogin = "Alamat kavling atau kata sandi anda tidak sesuai";
           });
         }
       } else {
-        setState(() {
-          errorLogin =
-              "Alamat kavling atau kata sandi anda tidak sesuai";
-        });
+        throw Exception(
+          'Failed to read API: ${response.statusCode}',
+        );
       }
-    } else {
-      throw Exception(
-        'Failed to read API: ${response.statusCode}',
-      );
+    } catch (e) {
+      print('Error: $e');
+
+      if (!mounted) return;
+
+      setState(() {
+        errorLogin = "Failed to connect to server";
+      });
+    } finally {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+      });
     }
-  } catch (e) {
-    print('Error: $e');
-
-    if (!mounted) return;
-
-    setState(() {
-      errorLogin = "Failed to connect to server";
-    });
-  } finally {
-    if (!mounted) return;
-
-    setState(() {
-      _loading = false;
-    });
   }
-}
- Future<void> logout() async {
-  _logoutTimer?.cancel();
-  _logoutTimer = null;
 
-  final prefs = await SharedPreferences.getInstance();
+  Future<void> logout() async {
+    _logoutTimer?.cancel();
+    _logoutTimer = null;
 
-  await prefs.clear();
+    final prefs = await SharedPreferences.getInstance();
 
-  if (!mounted) return;
+    await prefs.clear();
 
-  Navigator.pushAndRemoveUntil(
-    context,
-    MaterialPageRoute(
-      builder: (context) => MyLogin(),
-    ),
-    (route) => false,
-  );
-}
-void startAutoLogout() {
-  _logoutTimer?.cancel();
+    if (!mounted) return;
 
-  _logoutTimer = Timer(
-    const Duration(minutes: 240),
-    () async {
-     
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MyLogin(),
+      ),
+      (route) => false,
+    );
+  }
 
-      await logout();
-    },
-  );
+  void startAutoLogout() {
+    _logoutTimer?.cancel();
 
-  
-}
+    _logoutTimer = Timer(
+      const Duration(minutes: 240),
+      () async {
+        await logout();
+      },
+    );
+  }
+
   Future<void> fetchKeluhanData() async {
     final idRt = KodeRt.kodeRt;
     try {
@@ -501,10 +490,6 @@ void startAutoLogout() {
                               });
                             },
                           ),
-                           
-                         
-                    
-
                           SizedBox(height: 20),
                           _loading
                               ? CircularProgressIndicator(
@@ -535,7 +520,7 @@ void startAutoLogout() {
                                     ),
                                   ),
                                 ),
-                                SizedBox(height: 12),
+                          SizedBox(height: 12),
                           OutlinedButton.icon(
                             onPressed: _loading
                                 ? null
@@ -571,7 +556,8 @@ void startAutoLogout() {
                           ),
                           SizedBox(height: 20),
                           if (errorLogin.isNotEmpty)
-                          Expanded(child:   AutoSizeText(
+                            Expanded(
+                              child: AutoSizeText(
                                 errorLogin,
                                 style: TextStyle(
                                     color: Color.fromARGB(255, 255, 0, 0)),
@@ -579,9 +565,8 @@ void startAutoLogout() {
                                 textAlign: TextAlign.center,
                                 minFontSize: 10,
                                 overflow: TextOverflow.ellipsis,
-                              ),)
-                         
-                            
+                              ),
+                            )
                         ],
                       ),
                     ),

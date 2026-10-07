@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:iuran_rt_web/screens/log_akses_perumahan.dart';
 import 'package:iuran_rt_web/url.dart';
 import 'package:iuran_rt_web/utils/photo_quality.dart';
 import 'package:iuran_rt_web/widgets/ktp_camera_view.dart';
@@ -50,8 +51,67 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   static const Color primaryColor = Color(0xFF3D8D7A);
   static const Color bgColor = Color(0xFF3D8D7A);
   static const double wideBreakpoint = 900;
-  static const int maxImageBytes = 8 * 1024 * 1024; // 8 MB
+  static const int maxImageBytes = 8 * 1024 * 1024;
   static const int pageSize = 10;
+  void _openLogWarga() {
+    if (_scanning || _saving) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const LogAksesPerumahanPage()),
+    );
+  }
+
+  Widget _buildTipeToggle() {
+    Widget button(
+      String label,
+      IconData icon,
+      bool selected,
+      VoidCallback onTap,
+    ) {
+      final Color fg = selected ? primaryColor : Colors.white;
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: selected ? Colors.white : Colors.white12,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: fg, size: 20),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: fg,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        button('TAMU', Icons.badge, true, () {}),
+        const SizedBox(width: 8),
+        button('WARGA KAVLING', Icons.home, false, _openLogWarga),
+      ],
+    );
+  }
 
   // =========================================================
   // KONFIGURASI API
@@ -64,8 +124,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   String get _crmApiKey => ApiUrls.crmApiKey;
   String get _crmFallbackApiKey => ApiUrls.crmFallbackApiKey;
 
-  static const String endpointKtp = 'ktp'; // GET list, POST baru, PUT /{id}, POST /{id}/checkout
-  static const String fieldFoto = 'image'; // field file multipart untuk POST /api/ocr/ktp
+  static const String endpointKtp = 'ktp.php';
+  static const String fieldFoto = 'image';
 
   // Kolom yang ditampilkan di form (Nama, NIK, No. Kavling, Alamat)
   // Data OCR pendukung lainnya otomatis masuk ke metadata dan disimpan ke DB
@@ -79,7 +139,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // ---- state scan ----
   final ImagePicker _picker = ImagePicker();
   final GlobalKey<KtpCameraViewState> _camKey = GlobalKey<KtpCameraViewState>();
-  bool _cameraUnavailable = false; // kamera live gagal -> pakai kamera bawaan HP
+  bool _cameraUnavailable =
+      false; // kamera live gagal -> pakai kamera bawaan HP
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _ctrl = {
     for (final f in _fields) f.key: TextEditingController(),
@@ -92,7 +153,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   String? _scanError;
   String? _scanInfo;
   String? _ktpId; // id record hasil scan (dipakai untuk PUT)
-  Map<String, dynamic> _metadata = {}; // data tambahan hasil OCR (TTL, agama, dll)
+  Map<String, dynamic> _metadata =
+      {}; // data tambahan hasil OCR (TTL, agama, dll)
 
   // ---- state daftar tersimpan ----
   final TextEditingController _searchCtrl = TextEditingController();
@@ -161,7 +223,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     text = text.replaceAll(RegExp(r'[\s,]+ALAMAT\b', caseSensitive: false), '');
 
     // 3. Dedup segmen koma (mis. KEC. A WONOASIH muncul 2 kali)
-    final parts = text.split(',').map((p) => p.trim()).where((p) => p.isNotEmpty).toList();
+    final parts = text
+        .split(',')
+        .map((p) => p.trim())
+        .where((p) => p.isNotEmpty)
+        .toList();
     final deduped = <String>[];
     final seen = <String>{};
     for (final p in parts) {
@@ -201,7 +267,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     try {
       json = jsonDecode(response.body);
     } on FormatException catch (e, stack) {
-      debugPrint('Gagal parse JSON dari respons server (HTTP ${response.statusCode}): $e\n$stack');
+      debugPrint(
+          'Gagal parse JSON dari respons server (HTTP ${response.statusCode}): $e\n$stack');
       throw ApiException(
         'Respons server tidak berupa JSON valid (HTTP ${response.statusCode})',
         statusCode: response.statusCode,
@@ -221,7 +288,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       );
     }
     if (!_isOk(json)) {
-      final msg = _msg(json) ?? 'Permintaan gagal diproses (HTTP ${response.statusCode})';
+      final msg = _msg(json) ??
+          'Permintaan gagal diproses (HTTP ${response.statusCode})';
       throw ApiException(msg, statusCode: response.statusCode);
     }
     return json;
@@ -257,7 +325,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       if (!mounted) return;
       _setPhoto(bytes);
     } on PlatformException catch (e, stack) {
-      debugPrint('PlatformException saat memilih foto: ${e.code} ${e.message}\n$stack');
+      debugPrint(
+          'PlatformException saat memilih foto: ${e.code} ${e.message}\n$stack');
       if (!mounted) return;
       setState(() {
         _scanError = source == ImageSource.camera
@@ -291,7 +360,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     try {
       final uploadInput = html.FileUploadInputElement();
       uploadInput.accept = 'image/*';
-      uploadInput.setAttribute('capture', 'environment'); // Memicu aplikasi kamera belakang langsung
+      uploadInput.setAttribute(
+          'capture', 'environment'); // Memicu aplikasi kamera belakang langsung
       uploadInput.click();
 
       uploadInput.onChange.listen((e) {
@@ -304,7 +374,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
           reader.onError.listen((err) {
             debugPrint('FileReader error: $err');
             if (mounted) {
-              setState(() => _scanError = 'Gagal membaca berkas gambar kamera.');
+              setState(
+                  () => _scanError = 'Gagal membaca berkas gambar kamera.');
             }
           });
 
@@ -328,7 +399,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
             } catch (err, stack) {
               debugPrint('Error saat memproses data gambar: $err\n$stack');
               if (mounted) {
-                setState(() => _scanError = 'Gagal memproses gambar kamera: $err');
+                setState(
+                    () => _scanError = 'Gagal memproses gambar kamera: $err');
               }
             }
           });
@@ -455,7 +527,9 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       _ctrl['nama']!.text = _str(data['nama']);
       _ctrl['nik']!.text = _str(data['nik']).replaceAll(RegExp(r'\D'), '');
       _ctrl['alamat']!.text = _cleanAddress(_str(data['alamat']));
-      if (_ctrl['no_kavling'] != null && _ctrl['no_kavling']!.text.isEmpty && data['no_kavling'] != null) {
+      if (_ctrl['no_kavling'] != null &&
+          _ctrl['no_kavling']!.text.isEmpty &&
+          data['no_kavling'] != null) {
         _ctrl['no_kavling']!.text = _str(data['no_kavling']);
       }
 
@@ -470,7 +544,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       if (data['agama'] != null && _str(data['agama']).isNotEmpty) {
         meta['agama'] = _str(data['agama']);
       }
-      if (data['status_perkawinan'] != null && _str(data['status_perkawinan']).isNotEmpty) {
+      if (data['status_perkawinan'] != null &&
+          _str(data['status_perkawinan']).isNotEmpty) {
         meta['status_perkawinan'] = _str(data['status_perkawinan']);
       }
 
@@ -490,17 +565,20 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = 'Waktu habis. Proses OCR AI membutuhkan waktu lebih lama. Silakan coba lagi.';
+        _scanError =
+            'Waktu habis. Proses OCR AI membutuhkan waktu lebih lama. Silakan coba lagi.';
       });
     } on http.ClientException catch (e, stack) {
       debugPrint('ClientException OCR: $e\n$stack');
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = 'Gagal terhubung ke server OCR. Pastikan perangkat terhubung ke jaringan.';
+        _scanError =
+            'Gagal terhubung ke server OCR. Pastikan perangkat terhubung ke jaringan.';
       });
     } on ApiException catch (e, stack) {
-      debugPrint('ApiException OCR: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      debugPrint(
+          'ApiException OCR: ${e.message} (HTTP ${e.statusCode})\n$stack');
       if (!mounted) return;
       setState(() {
         _scanning = false;
@@ -518,7 +596,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       if (!mounted) return;
       setState(() {
         _scanning = false;
-        _scanError = 'Terjadi kesalahan sistem saat memproses KTP. Silakan coba lagi.';
+        _scanError =
+            'Terjadi kesalahan sistem saat memproses KTP. Silakan coba lagi.';
       });
     } finally {
       if (mounted && _scanning) {
@@ -547,44 +626,31 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       if (_imageBytes != null) {
         try {
           final compactBytes = PhotoTools.prepareForStorage(_imageBytes!);
-          fotoKtpPayload = 'data:image/jpeg;base64,${base64Encode(compactBytes)}';
+          fotoKtpPayload =
+              'data:image/jpeg;base64,${base64Encode(compactBytes)}';
         } catch (e, stack) {
           debugPrint('Gagal menyiapkan foto untuk penyimpanan: $e\n$stack');
         }
       }
 
-      final payload = <String, dynamic>{
+      final isUpdate = _ktpId != null && _ktpId!.isNotEmpty;
+
+      final body = <String, String>{
+        'set_kategori': isUpdate ? 'update' : 'insert',
+        if (isUpdate) 'id': _ktpId!,
         for (final f in _fields) f.key: _ctrl[f.key]!.text.trim(),
+        'metadata': jsonEncode(_metadata),
         if (fotoKtpPayload != null) 'foto_ktp': fotoKtpPayload,
-        'metadata': _metadata,
+        'id_rt': KodeRt.kodeRt,
       };
 
-      final http.Response response;
-      if (_ktpId == null || _ktpId!.isEmpty) {
-        // Data pengunjung baru: POST /api/ktp
-        response = await http
-            .post(
-              Uri.parse('$_base$endpointKtp'),
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              body: jsonEncode(payload),
-            )
-            .timeout(const Duration(seconds: 20));
-      } else {
-        // Perbarui data pengunjung yang ada: PUT /api/ktp/{id}
-        response = await http
-            .put(
-              Uri.parse('$_base$endpointKtp/$_ktpId'),
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-              body: jsonEncode(payload),
-            )
-            .timeout(const Duration(seconds: 20));
-      }
+      final http.Response response = await http
+          .post(
+            Uri.parse('${ApiUrls.baseUrl}$endpointKtp'),
+            headers: {'Accept': 'application/json'},
+            body: body,
+          )
+          .timeout(const Duration(seconds: 30));
 
       final json = await _decode(response);
 
@@ -598,9 +664,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       _snack('Waktu koneksi habis saat menyimpan. Silakan coba lagi.');
     } on http.ClientException catch (e, stack) {
       debugPrint('ClientException simpan: $e\n$stack');
-      _snack('Gagal menghubungi server database. Periksa koneksi jaringan Anda.');
+      _snack(
+          'Gagal menghubungi server database. Periksa koneksi jaringan Anda.');
     } on ApiException catch (e, stack) {
-      debugPrint('ApiException simpan: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      debugPrint(
+          'ApiException simpan: ${e.message} (HTTP ${e.statusCode})\n$stack');
       _snack(e.message);
     } on FormatException catch (e, stack) {
       debugPrint('FormatException simpan: $e\n$stack');
@@ -634,23 +702,22 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     });
 
     try {
-      final uri = Uri.parse('$_base$endpointKtp').replace(
-        queryParameters: {
+      final response = await http.post(
+        Uri.parse('${ApiUrls.baseUrl}$endpointKtp'),
+        headers: {'Accept': 'application/json'},
+        body: {
+          'set_kategori': 'select',
           'page': page.toString(),
           'limit': pageSize.toString(),
-          if (_searchCtrl.text.trim().isNotEmpty)
-            'search': _searchCtrl.text.trim(),
+          'search': _searchCtrl.text.trim(),
+          'id_rt': KodeRt.kodeRt,
         },
-      );
-      final response = await http.get(
-        uri,
-        headers: {'Accept': 'application/json'},
       ).timeout(const Duration(seconds: 20));
-
       final json = await _decode(response);
 
       final data = _toMap(json['data']);
-      final List list = data['items'] is List ? data['items'] as List : const [];
+      final List list =
+          data['items'] is List ? data['items'] as List : const [];
       final pagination = _toMap(data['pagination']);
       final int totalPages =
           int.tryParse('${pagination['total_pages'] ?? 1}') ?? 1;
@@ -677,10 +744,12 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       if (!mounted) return;
       setState(() {
         _loadingList = false;
-        _listError = 'Koneksi ke server terputus. Pastikan perangkat terhubung.';
+        _listError =
+            'Koneksi ke server terputus. Pastikan perangkat terhubung.';
       });
     } on ApiException catch (e, stack) {
-      debugPrint('ApiException fetch list: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      debugPrint(
+          'ApiException fetch list: ${e.message} (HTTP ${e.statusCode})\n$stack');
       if (!mounted) return;
       setState(() {
         _loadingList = false;
@@ -739,8 +808,13 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     setState(() => _busyIds.add(id));
     try {
       final response = await http.post(
-        Uri.parse('$_base$endpointKtp/$id/checkout'),
+        Uri.parse('${ApiUrls.baseUrl}$endpointKtp'),
         headers: {'Accept': 'application/json'},
+        body: {
+          'id_rt': KodeRt.kodeRt,
+          'set_kategori': 'checkout',
+          'id': id,
+        },
       ).timeout(const Duration(seconds: 15));
 
       final json = await _decode(response);
@@ -753,7 +827,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       debugPrint('ClientException checkout: $e\n$stack');
       _snack('Koneksi terputus saat checkout. Periksa jaringan Anda.');
     } on ApiException catch (e, stack) {
-      debugPrint('ApiException checkout: ${e.message} (HTTP ${e.statusCode})\n$stack');
+      debugPrint(
+          'ApiException checkout: ${e.message} (HTTP ${e.statusCode})\n$stack');
       _snack(e.message);
     } on FormatException catch (e, stack) {
       debugPrint('FormatException checkout: $e\n$stack');
@@ -799,6 +874,14 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                   constraints: BoxConstraints(maxWidth: wide ? 1400 : 560),
                   child: Column(
                     children: [
+                        Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(
+        width: wide ? 420 : double.infinity,
+        child: _buildTipeToggle(),
+      ),
+    ),
+    const SizedBox(height: 20),
                       if (wide)
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -811,6 +894,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                       else
                         Column(
                           children: [
+
                             _buildScanSection(),
                             const SizedBox(height: 20),
                             _buildFormCard(wide: false),
@@ -1201,7 +1285,6 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     );
   }
 
-
   Widget _buildField(_KtpField f, double width) {
     OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
@@ -1536,13 +1619,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                 const SizedBox(height: 6),
                 Text(
                   'Masuk: ${masuk.isEmpty ? '-' : masuk}',
-                  style:
-                      const TextStyle(fontSize: 12.5, color: Colors.black45),
+                  style: const TextStyle(fontSize: 12.5, color: Colors.black45),
                 ),
                 Text(
                   'Keluar: ${keluar.isEmpty ? '-' : keluar}',
-                  style:
-                      const TextStyle(fontSize: 12.5, color: Colors.black45),
+                  style: const TextStyle(fontSize: 12.5, color: Colors.black45),
                 ),
               ],
             ),

@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:iuran_rt_web/main.dart';
+import 'package:iuran_rt_web/screens/ocr_ktp.dart';
 import 'package:iuran_rt_web/url.dart';
 import 'web_qr_scanner.dart'; // taruh file ini di folder yang sama
 
@@ -430,18 +431,75 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
   // SCAN SECTION
   // ---------------------------------------------------------
 
-  Widget _buildScanSection() {
-    return Column(
-      children: [
-        _buildModeToggle(),
-        const SizedBox(height: 20),
-        _buildScanner(),
-        const SizedBox(height: 20),
-        _buildResultCard(),
-      ],
+ Widget _buildScanSection() {
+  return Column(
+    children: [
+      _buildTipeToggle(),
+      const SizedBox(height: 14),
+      _buildModeToggle(),
+      const SizedBox(height: 20),
+      _buildScanner(),
+      const SizedBox(height: 20),
+      _buildResultCard(),
+    ],
+  );
+}
+Widget _buildTipeToggle() {
+  Widget button(
+    String label,
+    IconData icon,
+    bool selected,
+    VoidCallback onTap,
+  ) {
+    final Color fg = selected ? primaryColor : Colors.white;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          height: 50,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: selected ? Colors.white : Colors.white12,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: fg, size: 20),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: fg,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
+  return Row(
+    children: [
+      button('TAMU', Icons.badge, false, () {
+        if (_isProcessing) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const OcrKtpPage()),
+        );
+      }),
+      const SizedBox(width: 8),
+      button('WARGA KAVLING', Icons.home, true, () {}),
+    ],
+  );
+}
  Widget _buildModeToggle() {
   Widget button(
     String value,
