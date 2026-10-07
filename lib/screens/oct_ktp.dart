@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:iuran_rt_web/url.dart';
+import 'package:iuran_rt_web/utils/photo_quality.dart';
+import 'package:iuran_rt_web/widgets/ktp_camera_view.dart';
 
 /// Kolom form. [key] = nama field yang dikirim ke backend (PUT /api/ktp/{id}).
 class _KtpField {
@@ -61,6 +62,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
 
   // ---- state scan ----
   final ImagePicker _picker = ImagePicker();
+  final GlobalKey<KtpCameraViewState> _camKey = GlobalKey<KtpCameraViewState>();
+  bool _cameraUnavailable = false; // kamera live gagal -> pakai kamera bawaan HP
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   late final Map<String, TextEditingController> _ctrl = {
     for (final f in _fields) f.key: TextEditingController(),
@@ -174,10 +177,9 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       );
       if (file == null) return;
 
-      final bytes = await file.readAsBytes();
-      if (!mounted) return;
-
-      if (bytes.length > maxImageBytes) {
+      final raw = await file.readAsBytes();
+      if (raw.length > maxImageBytes) {
+        if (!mounted) return;
         setState(() {
           _scanError = 'Ukuran foto terlalu besar (maks 8 MB)';
           _scanInfo = null;
@@ -185,12 +187,10 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
         return;
       }
 
-      setState(() {
-        _imageBytes = bytes;
-        _imageName = file.name;
-        _scanError = null;
-        _scanInfo = null;
-      });
+      // Putar sesuai EXIF + kecilkan ke maks 1600px (upload lebih cepat)
+      final bytes = PhotoTools.prepareForUpload(raw);
+      if (!mounted) return;
+      _setPhoto(bytes);
     } catch (e) {
       debugPrint('Gagal memilih foto: $e');
       if (!mounted) return;
@@ -200,6 +200,37 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
             : 'Gagal memilih foto';
       });
     }
+  }
+
+  /// Simpan foto + cek kualitas (peringatan saja, belum memblokir).
+  void _setPhoto(Uint8List bytes) {
+    final q = PhotoTools.analyze(bytes);
+    debugPrint('Kualitas foto: tajam=${q.sharpness.toStringAsFixed(0)} '
+        'terang=${q.brightness.toStringAsFixed(0)} '
+        'glare=${(q.glareRatio * 100).toStringAsFixed(1)}% ok=${q.ok}');
+    setState(() {
+      _imageBytes = bytes;
+      _imageName = 'ktp.jpg';
+      _scanError = q.ok ? null : q.message;
+      _scanInfo = null;
+    });
+  }
+
+  /// Tombol KAMERA: potret dari kamera live (dengan kotak panduan).
+  /// Kalau kamera live tidak bisa dipakai, buka kamera bawaan HP.
+  void _onKameraPressed() {
+    if (_scanning) return;
+    if (_imageBytes != null) {
+      // Foto sudah ada: kembali ke kamera live untuk foto ulang
+      _clearImage();
+      if (!_cameraUnavailable) return;
+    }
+    final cam = _camKey.currentState;
+    if (!_cameraUnavailable && cam != null) {
+      if (cam.isReady) cam.capture();
+      return;
+    }
+    _pickImage(ImageSource.camera);
   }
 
   void _clearImage() {
@@ -253,7 +284,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
         );
 
       final streamed =
-          await request.send().timeout(const Duration(seconds: 90));
+          await request.send().timeout(const Duration(seconds: 130));
       final response = await http.Response.fromStream(streamed);
       final json = await _decode(response);
 
@@ -580,22 +611,37 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
           children: [
             Container(
               color: Colors.black26,
-              child: _imageBytes == null
-                  ? const Center(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.badge_outlined,
-                              size: 56, color: Colors.white70),
-                          SizedBox(height: 8),
-                          Text(
-                            'Belum ada foto KTP',
-                            style: TextStyle(color: Colors.white70),
+              child: _imageBytes != null
+                  ? Image.memory(_imageBytes!, fit: BoxFit.contain)
+                  : _cameraUnavailable
+                      ? const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.badge_outlined,
+                                  size: 56, color: Colors.white70),
+                              SizedBox(height: 8),
+                              Text(
+                                'Belum ada foto KTP',
+                                style: TextStyle(color: Colors.white70),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    )
-                  : Image.memory(_imageBytes!, fit: BoxFit.contain),
+                        )
+                      : KtpCameraView(
+                          key: _camKey,
+                          hint: '', // petunjuk ditampilkan di kartu status
+                          onCaptured: (bytes) {
+                            if (mounted) _setPhoto(bytes);
+                          },
+                          onError: (msg) {
+                            if (!mounted) return;
+                            setState(() {
+                              _cameraUnavailable = true;
+                              _scanError = msg;
+                            });
+                          },
+                        ),
             ),
             if (_imageBytes != null && !_scanning)
               Positioned(
@@ -637,11 +683,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   }
 
   Widget _buildPickButtons() {
-    Widget button(String label, IconData icon, ImageSource source) {
+    Widget button(String label, IconData icon, VoidCallback onTap) {
       return Expanded(
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          onTap: _scanning ? null : () => _pickImage(source),
+          onTap: _scanning ? null : onTap,
           child: Container(
             height: 50,
             decoration: BoxDecoration(
@@ -673,9 +719,14 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
 
     return Row(
       children: [
-        button('KAMERA', Icons.photo_camera, ImageSource.camera),
+        button(
+          _imageBytes != null ? 'FOTO ULANG' : 'KAMERA',
+          _imageBytes != null ? Icons.refresh : Icons.photo_camera,
+          _onKameraPressed,
+        ),
         const SizedBox(width: 8),
-        button('PILIH FILE', Icons.upload_file, ImageSource.gallery),
+        button('PILIH FILE', Icons.upload_file,
+            () => _pickImage(ImageSource.gallery)),
       ],
     );
   }
@@ -703,10 +754,12 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
           color: Colors.white10,
           borderRadius: BorderRadius.circular(16),
         ),
-        child: const Text(
-          'Foto KTP tegak lurus, cahaya cukup, tanpa pantulan, dan seluruh sisi kartu terlihat supaya hasil OCR akurat',
+        child: Text(
+          _imageBytes == null && !_cameraUnavailable
+              ? 'Posisikan seluruh KTP di dalam kotak kuning, pegang HP sejajar dengan kartu, lalu tekan KAMERA'
+              : 'Foto KTP tegak lurus, cahaya cukup, tanpa pantulan, dan seluruh sisi kartu terlihat supaya hasil OCR akurat',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.white70, fontSize: 15),
+          style: const TextStyle(color: Colors.white70, fontSize: 15),
         ),
       );
     }
@@ -715,7 +768,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         border: Border.all(color: color, width: 1.5),
         borderRadius: BorderRadius.circular(16),
       ),
