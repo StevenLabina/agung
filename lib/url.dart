@@ -5,6 +5,17 @@ class ApiUrls {
   //static const String baseUrl = "https://de47-180-253-149-19.ngrok-free.app";
   //jalankan ngrok: ngrok http 3000
   //token: eMj5BcZjSs6qtDEhooufqS:APA91bHNASadUuqgrbuEvjs0lgqg7MLDq9xGXaBleIxD_FEefk5Ub3CfZMaHLbn0J6FmUza0VzMiaRjDFdtmeT7J05bEeII_-HWxaDEMEu4hZ-Il0J-EOvI
+
+  /// Endpoint OCR KTP ke backend CRM
+  /// Default production: https://crm.apikkedu.com/api/ocr/ktp
+  /// Pengujian lokal (php artisan serve): http://127.0.0.1:8000/api/ocr/ktp
+  static const String crmOcrUrl = "https://crm.apikkedu.com/api/ocr/ktp";
+
+  /// API Key otentikasi OCR KTP CRM (header X-API-KEY)
+  /// Default server produksi: apikko_cust_secret_access_key_2026
+  /// Default environment lokal .env: apikko-t40-internal-backup-key
+  static const String crmApiKey = "apikko_cust_secret_access_key_2026";
+  static const String crmFallbackApiKey = "apikko-t40-internal-backup-key";
 }
 
 class KodeRt {
