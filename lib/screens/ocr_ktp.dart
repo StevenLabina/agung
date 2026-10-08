@@ -10,7 +10,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:iuran_rt_web/screens/log_akses_perumahan.dart';
 import 'package:iuran_rt_web/url.dart';
 import 'package:iuran_rt_web/utils/photo_quality.dart';
+import 'package:iuran_rt_web/utils/web_image_ops.dart';
 import 'package:iuran_rt_web/widgets/ktp_camera_view.dart';
+import 'package:iuran_rt_web/widgets/ktp_crop_dialog.dart';
 import 'package:universal_html/html.dart' as html;
 
 /// Exception terstruktur untuk error API/jaringan/server
@@ -51,7 +53,9 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   static const Color primaryColor = Color(0xFF3D8D7A);
   static const Color bgColor = Color(0xFF3D8D7A);
   static const double wideBreakpoint = 900;
-  static const int maxImageBytes = 8 * 1024 * 1024;
+  // Batas file mentah. Foto diperkecil browser sebelum diunggah, jadi file besar
+  // dari kamera HP resolusi tinggi tetap boleh.
+  static const int maxImageBytes = 20 * 1024 * 1024;
   static const int pageSize = 10;
   void _openLogWarga() {
     if (_scanning || _saving) return;
@@ -144,8 +148,11 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   };
 
   Uint8List? _imageBytes;
+  // Salinan resolusi lebih tinggi untuk fitur crop (supaya hasil potong tetap tajam)
+  Uint8List? _cropSource;
   String? _imageName;
   bool _scanning = false;
+  bool _preparing = false; // sedang mengolah foto (resize/crop)
   bool _saving = false;
   String? _scanError;
   String? _scanInfo;
@@ -297,30 +304,21 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // =========================================================
 
   Future<void> _pickImage(ImageSource source) async {
-    if (_scanning) return;
+    if (_scanning || _preparing) return;
     try {
+      // Di web, ambil resolusi asli (browser yang memperkecilnya, cepat) supaya
+      // fitur crop punya detail. Di platform lain tetap diperkecil oleh picker.
+      final bool useNative = kIsWeb && NativeImageOps.available;
       final XFile? file = await _picker.pickImage(
         source: source,
-        maxWidth: 1280,
-        maxHeight: 1280,
-        imageQuality: 85,
+        maxWidth: useNative ? null : 1280,
+        maxHeight: useNative ? null : 1280,
+        imageQuality: useNative ? null : 85,
       );
       if (file == null) return;
 
-      final raw = await file.readAsBytes();
-      if (raw.length > maxImageBytes) {
-        if (!mounted) return;
-        setState(() {
-          _scanError = 'Ukuran foto terlalu besar (maks 8 MB)';
-          _scanInfo = null;
-        });
-        return;
-      }
-
-      // Putar sesuai EXIF + optimasi ukuran bila perlu (cepat)
-      final bytes = PhotoTools.prepareForUpload(raw);
-      if (!mounted) return;
-      _setPhoto(bytes);
+      await _ingestPhoto(await file.readAsBytes(),
+          autoCrop: source == ImageSource.gallery);
     } on PlatformException catch (e, stack) {
       debugPrint(
           'PlatformException saat memilih foto: ${e.code} ${e.message}\n$stack');
@@ -342,9 +340,10 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   }
 
   /// Pasang foto ke preview secara instan tanpa memblokir thread UI.
-  void _setPhoto(Uint8List bytes) {
+  void _setPhoto(Uint8List bytes, {Uint8List? cropSource}) {
     setState(() {
       _imageBytes = bytes;
+      _cropSource = cropSource ?? bytes;
       _imageName = 'ktp.jpg';
       _scanError = null;
       _scanInfo = null;
@@ -381,17 +380,7 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
               final result = reader.result;
               if (result is List<int>) {
                 final raw = Uint8List.fromList(result);
-                if (raw.length > maxImageBytes) {
-                  if (!mounted) return;
-                  setState(() {
-                    _scanError = 'Ukuran foto terlalu besar (maks 8 MB)';
-                    _scanInfo = null;
-                  });
-                  return;
-                }
-                final bytes = PhotoTools.prepareForUpload(raw);
-                if (!mounted) return;
-                _setPhoto(bytes);
+                unawaited(_ingestPhoto(raw));
               }
             } catch (err, stack) {
               debugPrint('Error saat memproses data gambar: $err\n$stack');
@@ -437,10 +426,97 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     }
   }
 
+  /// Olah foto mentah dari file / kamera bawaan: perkecil untuk diunggah dan
+  /// siapkan salinan resolusi lebih tinggi untuk crop. Di web dikerjakan browser
+  /// (cepat, UI tidak membeku). Dengan [autoCrop], KTP yang terdeteksi langsung
+  /// dipotong; salinan asli tetap disimpan sehingga bisa disesuaikan manual.
+  Future<void> _ingestPhoto(Uint8List raw, {bool autoCrop = false}) async {
+    if (raw.length > maxImageBytes) {
+      if (!mounted) return;
+      setState(() {
+        _scanError = 'Ukuran foto terlalu besar (maks 20 MB)';
+        _scanInfo = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _preparing = true;
+      _scanError = null;
+      _scanInfo = null;
+    });
+    try {
+      final sw = Stopwatch()..start();
+      var upload = await PhotoTools.prepareForUploadAsync(raw);
+      final cropSrc = await PhotoTools.prepareForCropAsync(raw);
+
+      var autoCropped = false;
+      if (autoCrop && NativeImageOps.available) {
+        final rect = await NativeImageOps.detectCardRect(cropSrc);
+        if (rect != null) {
+          final cut = await NativeImageOps.cropRectJpeg(
+            cropSrc,
+            rect: rect,
+            maxSide: 2400,
+          );
+          if (cut != null) {
+            upload = await PhotoTools.prepareForUploadAsync(cut);
+            autoCropped = true;
+          }
+        }
+      }
+      debugPrint('Foto diolah: ${raw.length} B -> unggah ${upload.length} B, '
+          'crop ${cropSrc.length} B (${sw.elapsedMilliseconds} ms, '
+          'native=${NativeImageOps.available}, autoCrop=$autoCropped)');
+      if (!mounted) return;
+      _setPhoto(upload, cropSource: cropSrc);
+      if (autoCropped) {
+        setState(() => _scanInfo =
+            'Foto dipotong otomatis. Tekan ikon potong untuk menyesuaikan.');
+      }
+    } catch (e, stack) {
+      debugPrint('Gagal mengolah foto: $e\n$stack');
+      if (mounted) {
+        setState(() => _scanError = 'Gagal memproses foto, coba lagi.');
+      }
+    } finally {
+      if (mounted) setState(() => _preparing = false);
+    }
+  }
+
+  /// Potong (crop) foto. Selalu dipotong dari salinan resolusi tinggi, jadi bisa
+  /// diulang tanpa mengurangi kualitas.
+  Future<void> _cropPhoto() async {
+    final src = _cropSource ?? _imageBytes;
+    if (src == null || _scanning || _preparing) return;
+
+    final cropped = await showKtpCropDialog(context, src);
+    if (cropped == null || !mounted) return;
+
+    setState(() => _preparing = true);
+    try {
+      final bytes = await PhotoTools.prepareForUploadAsync(cropped);
+      if (!mounted) return;
+      setState(() {
+        _imageBytes = bytes;
+        _scanError = null;
+        _scanInfo = null;
+      });
+    } catch (e, stack) {
+      debugPrint('Gagal menyiapkan hasil crop: $e\n$stack');
+      if (mounted) {
+        setState(() => _scanError = 'Gagal memproses hasil potong, coba lagi.');
+      }
+    } finally {
+      if (mounted) setState(() => _preparing = false);
+    }
+  }
+
   void _clearImage() {
     if (_scanning) return;
     setState(() {
       _imageBytes = null;
+      _cropSource = null;
       _imageName = null;
       _scanError = null;
       _scanInfo = null;
@@ -1039,15 +1115,29 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                   ),
                 ),
               ),
-            if (_scanning)
+            if (_imageBytes != null && !_scanning && !_preparing)
+              Positioned(
+                top: 8,
+                left: 8,
+                child: Material(
+                  color: Colors.black54,
+                  shape: const CircleBorder(),
+                  child: IconButton(
+                    tooltip: 'Potong foto (crop)',
+                    icon: const Icon(Icons.crop, color: Colors.white),
+                    onPressed: _cropPhoto,
+                  ),
+                ),
+              ),
+            if (_scanning || _preparing)
               Container(
                 color: Colors.black.withValues(alpha: 0.65),
                 alignment: Alignment.center,
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: const Column(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    SizedBox(
+                    const SizedBox(
                       width: 42,
                       height: 42,
                       child: CircularProgressIndicator(
@@ -1055,11 +1145,13 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
                         strokeWidth: 3.5,
                       ),
                     ),
-                    SizedBox(height: 14),
+                    const SizedBox(height: 14),
                     Text(
-                      'Sedang Memindai KTP...',
+                      _preparing
+                          ? 'Menyiapkan foto...'
+                          : 'Sedang Memindai KTP...',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontSize: 16,

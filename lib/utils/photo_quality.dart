@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
+import 'package:iuran_rt_web/utils/web_image_ops.dart';
 
 enum PhotoIssue { unreadable, blurry, tooDark, tooBright, glare }
 
@@ -209,6 +210,46 @@ class PhotoTools {
           : img.copyResize(image, height: maxSide);
     }
     return Uint8List.fromList(img.encodeJpg(image, quality: quality));
+  }
+
+  /// Versi async dari [prepareForUpload]. Di web, foto besar diproses browser
+  /// (canvas): jauh lebih cepat dan tidak membekukan UI dibanding decode di Dart.
+  /// Rotasi EXIF ikut diterapkan browser. Kalau gagal / bukan web, jatuh ke
+  /// [prepareForUpload].
+  static Future<Uint8List> prepareForUploadAsync(
+    Uint8List bytes, {
+    int maxSide = 1200,
+    int quality = 85,
+  }) async {
+    if (bytes.length <= 400 * 1024) return bytes;
+    if (NativeImageOps.available) {
+      final out = await NativeImageOps.resizeJpeg(
+        bytes,
+        maxSide: maxSide,
+        quality: quality / 100,
+      );
+      if (out != null) return out;
+    }
+    return prepareForUpload(bytes, maxSide: maxSide, quality: quality);
+  }
+
+  /// Salinan kerja untuk dipotong (crop): resolusi lebih tinggi daripada foto
+  /// unggahan supaya hasil potong tetap tajam. Hanya di web; selain itu
+  /// mengembalikan foto apa adanya.
+  static Future<Uint8List> prepareForCropAsync(
+    Uint8List bytes, {
+    int maxSide = 2400,
+    int quality = 92,
+  }) async {
+    if (NativeImageOps.available) {
+      final out = await NativeImageOps.resizeJpeg(
+        bytes,
+        maxSide: maxSide,
+        quality: quality / 100,
+      );
+      if (out != null) return out;
+    }
+    return bytes;
   }
 
   /// Siapkan foto untuk penyimpanan database (dikompresi ke dimensi wajar
