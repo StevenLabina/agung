@@ -116,9 +116,6 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
   // =========================================================
   // KONFIGURASI API
   // =========================================================
-  // Otomatis sesuai environment (lokal -> port 8000 / MySQL demo_ocr_ktp; produksi -> server cloud)
-  String get _base => ApiUrls.ktpBaseUrl;
-
   // Endpoint API OCR KTP (CRM Apikko)
   String get _crmOcrUrl => ApiUrls.crmOcrUrl;
   String get _crmApiKey => ApiUrls.crmApiKey;
