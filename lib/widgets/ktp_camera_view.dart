@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
+import 'package:iuran_rt_web/utils/web_image_ops.dart';
 
 /// Kamera live dengan kotak panduan KTP.
 ///
@@ -142,9 +143,25 @@ class KtpCameraViewState extends State<KtpCameraView> {
 
     setState(() => _busy = true);
     try {
+      final sw = Stopwatch()..start();
       final shot = await controller.takePicture();
       final raw = await shot.readAsBytes();
-      final out = cropToGuide(
+      final tShot = sw.elapsedMilliseconds;
+
+      // Di web: crop/resize/encode oleh browser (cepat, UI tidak membeku).
+      Uint8List? out;
+      if (NativeImageOps.available) {
+        out = await NativeImageOps.cropToGuideJpeg(
+          raw,
+          boxAspect: _boxAspect,
+          guideScale: widget.guideScale,
+          cropMargin: widget.cropMargin,
+          mirror: _mirror,
+          maxSide: widget.maxSide,
+        );
+      }
+      // Cadangan: jalur Dart murni (lebih lambat, memblokir UI).
+      out ??= cropToGuide(
         raw,
         boxAspect: _boxAspect,
         guideScale: widget.guideScale,
@@ -152,7 +169,9 @@ class KtpCameraViewState extends State<KtpCameraView> {
         mirror: _mirror,
         maxSide: widget.maxSide,
       );
-      debugPrint('Foto kamera: ${raw.length} B -> crop ${out.length} B');
+      debugPrint('Foto kamera: ${raw.length} B -> crop ${out.length} B | '
+          'ambil $tShot ms, olah ${sw.elapsedMilliseconds - tShot} ms '
+          '(native=${NativeImageOps.available})');
       if (mounted) widget.onCaptured(out);
     } catch (e, stack) {
       debugPrint('Gagal memotret: $e\n$stack');
