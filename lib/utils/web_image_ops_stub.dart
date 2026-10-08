@@ -23,4 +23,14 @@ class NativeImageOps {
     double quality = 0.85,
   }) async =>
       null;
+
+  static Future<Uint8List?> cropRectJpeg(
+    Uint8List bytes, {
+    required List<double> rect,
+    required int maxSide,
+    double quality = 0.92,
+  }) async =>
+      null;
+
+  static Future<List<double>?> detectCardRect(Uint8List bytes) async => null;
 }

@@ -317,7 +317,8 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
       );
       if (file == null) return;
 
-      await _ingestPhoto(await file.readAsBytes());
+      await _ingestPhoto(await file.readAsBytes(),
+          autoCrop: source == ImageSource.gallery);
     } on PlatformException catch (e, stack) {
       debugPrint(
           'PlatformException saat memilih foto: ${e.code} ${e.message}\n$stack');
@@ -427,8 +428,9 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
 
   /// Olah foto mentah dari file / kamera bawaan: perkecil untuk diunggah dan
   /// siapkan salinan resolusi lebih tinggi untuk crop. Di web dikerjakan browser
-  /// (cepat, UI tidak membeku).
-  Future<void> _ingestPhoto(Uint8List raw) async {
+  /// (cepat, UI tidak membeku). Dengan [autoCrop], KTP yang terdeteksi langsung
+  /// dipotong; salinan asli tetap disimpan sehingga bisa disesuaikan manual.
+  Future<void> _ingestPhoto(Uint8List raw, {bool autoCrop = false}) async {
     if (raw.length > maxImageBytes) {
       if (!mounted) return;
       setState(() {
@@ -445,13 +447,33 @@ class _OcrKtpPageState extends State<OcrKtpPage> {
     });
     try {
       final sw = Stopwatch()..start();
-      final upload = await PhotoTools.prepareForUploadAsync(raw);
+      var upload = await PhotoTools.prepareForUploadAsync(raw);
       final cropSrc = await PhotoTools.prepareForCropAsync(raw);
+
+      var autoCropped = false;
+      if (autoCrop && NativeImageOps.available) {
+        final rect = await NativeImageOps.detectCardRect(cropSrc);
+        if (rect != null) {
+          final cut = await NativeImageOps.cropRectJpeg(
+            cropSrc,
+            rect: rect,
+            maxSide: 2400,
+          );
+          if (cut != null) {
+            upload = await PhotoTools.prepareForUploadAsync(cut);
+            autoCropped = true;
+          }
+        }
+      }
       debugPrint('Foto diolah: ${raw.length} B -> unggah ${upload.length} B, '
           'crop ${cropSrc.length} B (${sw.elapsedMilliseconds} ms, '
-          'native=${NativeImageOps.available})');
+          'native=${NativeImageOps.available}, autoCrop=$autoCropped)');
       if (!mounted) return;
       _setPhoto(upload, cropSource: cropSrc);
+      if (autoCropped) {
+        setState(() => _scanInfo =
+            'Foto dipotong otomatis. Tekan ikon potong untuk menyesuaikan.');
+      }
     } catch (e, stack) {
       debugPrint('Gagal mengolah foto: $e\n$stack');
       if (mounted) {
