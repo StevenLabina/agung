@@ -17,6 +17,7 @@ class ScanResult {
   final String? noKavling;
   final String? alamat;
   final String? waktu;
+  final String? jamMasuk; // BARU: dipakai untuk menampilkan jam masuk saat scan keluar
 
   const ScanResult({
     required this.status,
@@ -25,6 +26,7 @@ class ScanResult {
     this.noKavling,
     this.alamat,
     this.waktu,
+    this.jamMasuk,
   });
 }
 
@@ -48,7 +50,8 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
 
   // Kamera depan/belakang (di laptop biasanya hanya ada satu kamera)
   bool _frontCamera = false;
-  bool _isMirrored = false; 
+  bool _isMirrored = false;
+
   // Cegah QR yang sama tercatat berulang selama masih di depan kamera
   String? _lastRaw;
   DateTime? _lastScanAt;
@@ -205,7 +208,7 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
       );
     }
 
-    // 3. Server cek no_kavling di RT ini + catat log
+    // 3. Server cek no_kavling di RT ini + catat jam masuk / jam keluar
     try {
       final response = await http.post(
         Uri.parse('${ApiUrls.baseUrl}catat_akses_perumahan.php'),
@@ -234,6 +237,7 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
           noKavling: data['no_kavling']?.toString(),
           alamat: data['alamat_kavling']?.toString(),
           waktu: data['waktu']?.toString(),
+          jamMasuk: data['jam_masuk']?.toString(),
         );
       }
 
@@ -245,6 +249,7 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
         );
       }
 
+      // Termasuk penolakan: "Scan MASUK dulu" / "Scan KELUAR dulu"
       return ScanResult(
         status: ScanStatus.error,
         message: json['message']?.toString() ?? 'Terjadi kesalahan',
@@ -369,23 +374,23 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
           'Scan Akses Perumahan',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
-     actions: [
-  // Tombol Flip Mirror (Cermin)
-  IconButton(
-    icon: Icon(
-      _isMirrored ? Icons.flip : Icons.flip_outlined,
-      color: _isMirrored ? Colors.amber : Colors.white,
-    ),
-    tooltip: 'Mirror Kamera',
-    onPressed: () => setState(() => _isMirrored = !_isMirrored),
-  ),
-  // Tombol Ganti Kamera Depan/Belakang
-  IconButton(
-    icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
-    tooltip: 'Ganti Kamera',
-    onPressed: () => setState(() => _frontCamera = !_frontCamera),
-  ),
-],
+        actions: [
+          // Tombol Flip Mirror (Cermin)
+          IconButton(
+            icon: Icon(
+              _isMirrored ? Icons.flip : Icons.flip_outlined,
+              color: _isMirrored ? Colors.amber : Colors.white,
+            ),
+            tooltip: 'Mirror Kamera',
+            onPressed: () => setState(() => _isMirrored = !_isMirrored),
+          ),
+          // Tombol Ganti Kamera Depan/Belakang
+          IconButton(
+            icon: const Icon(Icons.flip_camera_ios, color: Colors.white),
+            tooltip: 'Ganti Kamera',
+            onPressed: () => setState(() => _frontCamera = !_frontCamera),
+          ),
+        ],
       ),
       body: SafeArea(
         child: LayoutBuilder(
@@ -431,200 +436,199 @@ class _LogAksesPerumahanPageState extends State<LogAksesPerumahanPage> {
   // SCAN SECTION
   // ---------------------------------------------------------
 
- Widget _buildScanSection() {
-  return Column(
-    children: [
-      _buildTipeToggle(),
-      const SizedBox(height: 14),
-      _buildModeToggle(),
-      const SizedBox(height: 20),
-      _buildScanner(),
-      const SizedBox(height: 20),
-      _buildResultCard(),
-    ],
-  );
-}
-Widget _buildTipeToggle() {
-  Widget button(
-    String label,
-    IconData icon,
-    bool selected,
-    VoidCallback onTap,
-  ) {
-    final Color fg = selected ? primaryColor : Colors.white;
-    return Expanded(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        child: Container(
-          height: 50,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: selected ? Colors.white : Colors.white12,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, color: fg, size: 20),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: fg,
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+  Widget _buildScanSection() {
+    return Column(
+      children: [
+        _buildTipeToggle(),
+        const SizedBox(height: 14),
+        _buildModeToggle(),
+        const SizedBox(height: 20),
+        _buildScanner(),
+        const SizedBox(height: 20),
+        _buildResultCard(),
+      ],
     );
   }
 
-  return Row(
-    children: [
-      button('TAMU', Icons.badge, false, () {
-        if (_isProcessing) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const OcrKtpPage()),
-        );
-      }),
-      const SizedBox(width: 8),
-      button('WARGA KAVLING', Icons.home, true, () {}),
-    ],
-  );
-}
- Widget _buildModeToggle() {
-  Widget button(
-    String value,
-    String label,
-    IconData icon,
-  ) {
-    final bool selected = _mode == value;
+  Widget _buildTipeToggle() {
+    Widget button(
+      String label,
+      IconData icon,
+      bool selected,
+      VoidCallback onTap,
+    ) {
+      final Color fg = selected ? primaryColor : Colors.white;
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: onTap,
+          child: Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: selected ? Colors.white : Colors.white12,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: fg, size: 20),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: fg,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
-    return Expanded(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () {
+    return Row(
+      children: [
+        button('TAMU', Icons.badge, false, () {
           if (_isProcessing) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const OcrKtpPage()),
+          );
+        }),
+        const SizedBox(width: 8),
+        button('WARGA KAVLING', Icons.home, true, () {}),
+      ],
+    );
+  }
 
-          setState(() {
-            _mode = value;
-            _result = null;
-          });
-        },
-        child: Container(
-          height: 50,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            color: selected ? primaryColor : Colors.white12,
-            borderRadius: BorderRadius.circular(12),
+  Widget _buildModeToggle() {
+    Widget button(
+      String value,
+      String label,
+      IconData icon,
+    ) {
+      final bool selected = _mode == value;
+
+      return Expanded(
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () {
+            if (_isProcessing) return;
+
+            setState(() {
+              _mode = value;
+              _result = null;
+            });
+          },
+          child: Container(
+            height: 50,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: selected ? primaryColor : Colors.white12,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  icon,
+                  color: Colors.white,
+                  size: 20,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    label,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                icon,
-                color: Colors.white,
-                size: 20,
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        button(
+          'masuk',
+          'MASUK',
+          Icons.login,
+        ),
+        const SizedBox(width: 8),
+        button(
+          'keluar',
+          'KELUAR',
+          Icons.logout,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildScanner() {
+    return AspectRatio(
+      aspectRatio: 1,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Key hanya bergantung kamera depan/belakang.
+            // Mirror lewat CSS, jadi kamera tidak restart.
+            WebQrScanner(
+              key: ValueKey(_frontCamera),
+              useFrontCamera: _frontCamera,
+              mirrored: _isMirrored,
+              paused: _isProcessing,
+              onCode: _onCode,
+            ),
+            IgnorePointer(
+              child: Center(
+                child: Container(
+                  width: 220,
+                  height: 220,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white, width: 3),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
               ),
-
-              const SizedBox(width: 6),
-
-              Flexible(
-                child: Text(
-                  label,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+            ),
+            if (_mode == null)
+              Container(
+                color: Colors.black54,
+                alignment: Alignment.center,
+                padding: const EdgeInsets.all(20),
+                child: const Text(
+                  'Pilih MASUK atau KELUAR\nterlebih dahulu',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
                     color: Colors.white,
-                    fontSize: 15,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
               ),
-            ],
-          ),
+            if (_isProcessing && _result == null)
+              Container(color: Colors.black45),
+          ],
         ),
       ),
     );
   }
 
-  return Row(
-    children: [
-      button(
-        'masuk',
-        'MASUK',
-        Icons.login,
-      ),
-
-      const SizedBox(width: 8),
-
-      button(
-        'keluar',
-        'KELUAR',
-        Icons.logout,
-      ),
-    ],
-  );
-}
- Widget _buildScanner() {
-  return AspectRatio(
-    aspectRatio: 1,
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Key hanya bergantung kamera depan/belakang.
-          // Mirror lewat CSS, jadi kamera tidak restart.
-          WebQrScanner(
-            key: ValueKey(_frontCamera),
-            useFrontCamera: _frontCamera,
-            mirrored: _isMirrored,
-            paused: _isProcessing,
-            onCode: _onCode,
-          ),
-          IgnorePointer(
-            child: Center(
-              child: Container(
-                width: 220,
-                height: 220,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.white, width: 3),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-            ),
-          ),
-          if (_mode == null)
-            Container(
-              color: Colors.black54,
-              alignment: Alignment.center,
-              padding: const EdgeInsets.all(20),
-              child: const Text(
-                'Pilih MASUK atau KELUAR\nterlebih dahulu',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-         
-          if (_isProcessing && _result == null)
-            Container(color: Colors.black45),
-        ],
-      ),
-    ),
-  );
-}
   Widget _buildResultCard() {
     final result = _result;
 
@@ -688,30 +692,36 @@ Widget _buildTipeToggle() {
           if (result.status == ScanStatus.success) ...[
             const SizedBox(height: 12),
             if (result.nama != null && result.nama!.isNotEmpty)
-              Text(result.nama!,
-                  style: const TextStyle(color: Colors.white, fontSize: 18)),
+              Text(
+                result.nama!,
+                style: const TextStyle(color: Colors.white, fontSize: 18),
+              ),
             const SizedBox(height: 4),
-          Text(
-  'No. Kavling ${result.noKavling ?? '-'}',
-  textAlign: TextAlign.center,
-  style: const TextStyle(
-    color: Colors.white70,
-  ),
-),
-
-if (result.alamat != null && result.alamat!.isNotEmpty) ...[
-  const SizedBox(height: 4),
-
-  Text(
-    result.alamat!,
-    textAlign: TextAlign.center,
-    maxLines: 2,
-    overflow: TextOverflow.ellipsis,
-    style: const TextStyle(
-      color: Colors.white70,
-    ),
-  ),
-],
+            Text(
+              'No. Kavling ${result.noKavling ?? '-'}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70),
+            ),
+            if (result.alamat != null && result.alamat!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                result.alamat!,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
+            // BARU: saat scan KELUAR, tampilkan juga jam masuknya
+            if (_mode == 'keluar' &&
+                result.jamMasuk != null &&
+                result.jamMasuk!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Masuk: ${result.jamMasuk}',
+                style: const TextStyle(color: Colors.white70),
+              ),
+            ],
             const SizedBox(height: 4),
             Text(
               result.waktu ?? '',
@@ -759,82 +769,130 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
   }
 
   Widget _buildFilter(bool wide) {
-  Widget dateField(
-    String label,
-    DateTime? value,
-    bool isDari,
-    double width,
-  ) {
-    return SizedBox(
-      width: width,
-      height: 48,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: () => _pickDate(isDari: isDari),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade600),
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.calendar_month,
-                color: Colors.black87,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
+    Widget dateField(
+      String label,
+      DateTime? value,
+      bool isDari,
+      double width,
+    ) {
+      return SizedBox(
+        width: width,
+        height: 48,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _pickDate(isDari: isDari),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade600),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.calendar_month,
+                  color: Colors.black87,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
 
-              // Jangan biarkan Text memaksa Row melebar
-              Expanded(
-                child: Text(
-                  value == null ? label : _fmtDate(value),
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color:
-                        value == null ? Colors.black54 : Colors.black87,
+                // Jangan biarkan Text memaksa Row melebar
+                Expanded(
+                  child: Text(
+                    value == null ? label : _fmtDate(value),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: value == null ? Colors.black54 : Colors.black87,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double maxWidth = constraints.maxWidth;
+
+        // MOBILE
+        if (!wide) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              dateField(
+                'Dari Tanggal',
+                _dari,
+                true,
+                maxWidth,
+              ),
+              const SizedBox(height: 10),
+              dateField(
+                'Sampai Tanggal',
+                _sampai,
+                false,
+                maxWidth,
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: maxWidth,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: _loadingLog ? null : _applyFilter,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryColor,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                  child: const Text(
+                    'Tampilkan',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
                 ),
               ),
+              if (_dari != null || _sampai != null) ...[
+                const SizedBox(height: 4),
+                SizedBox(
+                  width: maxWidth,
+                  child: TextButton(
+                    onPressed: _loadingLog ? null : _resetFilter,
+                    child: const Text('Reset'),
+                  ),
+                ),
+              ],
             ],
-          ),
-        ),
-      ),
-    );
-  }
+          );
+        }
 
-  return LayoutBuilder(
-    builder: (context, constraints) {
-      final double maxWidth = constraints.maxWidth;
-
-      // MOBILE
-      if (!wide) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        // DESKTOP
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             dateField(
               'Dari Tanggal',
               _dari,
               true,
-              maxWidth,
+              200,
             ),
-
-            const SizedBox(height: 10),
-
             dateField(
               'Sampai Tanggal',
               _sampai,
               false,
-              maxWidth,
+              200,
             ),
-
-            const SizedBox(height: 10),
-
             SizedBox(
-              width: maxWidth,
+              width: 150,
               height: 48,
               child: ElevatedButton(
                 onPressed: _loadingLog ? null : _applyFilter,
@@ -854,77 +912,19 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
                 ),
               ),
             ),
-
-            if (_dari != null || _sampai != null) ...[
-              const SizedBox(height: 4),
-
+            if (_dari != null || _sampai != null)
               SizedBox(
-                width: maxWidth,
+                height: 48,
                 child: TextButton(
                   onPressed: _loadingLog ? null : _resetFilter,
                   child: const Text('Reset'),
                 ),
               ),
-            ],
           ],
         );
-      }
-
-      // DESKTOP
-      return Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          dateField(
-            'Dari Tanggal',
-            _dari,
-            true,
-            200,
-          ),
-
-          dateField(
-            'Sampai Tanggal',
-            _sampai,
-            false,
-            200,
-          ),
-
-          SizedBox(
-            width: 150,
-            height: 48,
-            child: ElevatedButton(
-              onPressed: _loadingLog ? null : _applyFilter,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: primaryColor,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                ),
-              ),
-              child: const Text(
-                'Tampilkan',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 15,
-                ),
-              ),
-            ),
-          ),
-
-          if (_dari != null || _sampai != null)
-            SizedBox(
-              height: 48,
-              child: TextButton(
-                onPressed: _loadingLog ? null : _resetFilter,
-                child: const Text('Reset'),
-              ),
-            ),
-        ],
-      );
-    },
-  );
-}
+      },
+    );
+  }
 
   Widget _buildLogContent(bool wide) {
     Widget body;
@@ -940,9 +940,11 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
         child: Center(
           child: Column(
             children: [
-              Text(_logError!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.red)),
+              Text(
+                _logError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.red),
+              ),
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () => _fetchLog(page: _page),
@@ -956,8 +958,10 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
       body = const Padding(
         padding: EdgeInsets.symmetric(vertical: 60),
         child: Center(
-          child: Text('Belum ada log akses',
-              style: TextStyle(color: Colors.black54)),
+          child: Text(
+            'Belum ada log akses',
+            style: TextStyle(color: Colors.black54),
+          ),
         ),
       );
     } else {
@@ -987,10 +991,41 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
   }
 
   // Lebar kolom desktop (flex)
-  static const int _fTanggal = 3;
   static const int _fKavling = 2;
   static const int _fNama = 4;
-  static const int _fAktivitas = 4;
+  static const int _fMasuk = 3;
+  static const int _fKeluar = 3;
+
+  // Tampilkan jam keluar, atau badge status bila belum keluar
+  Widget _statusKeluar(Map<String, dynamic> log, {double fontSize = 13.5}) {
+    final String status = '${log['status'] ?? ''}';
+    final String? keluar = log['jam_keluar']?.toString();
+
+    if (keluar != null && keluar.isNotEmpty && keluar != 'null') {
+      return Text(
+        keluar,
+        style: TextStyle(fontSize: fontSize, color: const Color(0xFF222222)),
+      );
+    }
+
+    final bool lupa = status == 'lupa_keluar';
+    final Color c = lupa ? Colors.red : Colors.green;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        lupa ? 'Lupa scan keluar' : 'Di dalam',
+        style: TextStyle(
+          color: c,
+          fontWeight: FontWeight.bold,
+          fontSize: fontSize - 1,
+        ),
+      ),
+    );
+  }
 
   Widget _desktopHeader() {
     Widget cell(String text, int flex) => Expanded(
@@ -1012,22 +1047,21 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
       color: primaryColor,
       child: Row(
         children: [
-          cell('Tanggal', _fTanggal),
           cell('No Kavling', _fKavling),
           cell('Nama Warga', _fNama),
-          cell('Aktivitas', _fAktivitas),
+          cell('Jam Masuk', _fMasuk),
+          cell('Jam Keluar', _fKeluar),
         ],
       ),
     );
   }
 
   Widget _desktopRow(Map<String, dynamic> log) {
-    final bool masuk = log['jenis'] == 'masuk';
     Widget cell(Widget child, int flex) => Expanded(
           flex: flex,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-            child: child,
+            child: Align(alignment: Alignment.centerLeft, child: child),
           ),
         );
     const style = TextStyle(fontSize: 13.5, color: Color(0xFF222222));
@@ -1038,38 +1072,10 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
       ),
       child: Row(
         children: [
-          cell(Text('${log['waktu'] ?? '-'}', style: style), _fTanggal),
           cell(Text('${log['no_kavling'] ?? '-'}', style: style), _fKavling),
           cell(Text('${log['nama'] ?? '-'}', style: style), _fNama),
-        cell(
-  Row(
-    children: [
-      Icon(
-        masuk ? Icons.login : Icons.logout,
-        size: 16,
-        color: masuk ? Colors.green : Colors.orange,
-      ),
-
-      const SizedBox(width: 6),
-
-      Expanded(
-        child: Text(
-          masuk
-              ? 'Masuk perumahan'
-              : 'Keluar perumahan',
-          overflow: TextOverflow.ellipsis,
-          style: style.copyWith(
-            fontWeight: FontWeight.w600,
-            color: masuk
-                ? Colors.green.shade700
-                : Colors.orange.shade800,
-          ),
-        ),
-      ),
-    ],
-  ),
-  _fAktivitas,
-),
+          cell(Text('${log['jam_masuk'] ?? '-'}', style: style), _fMasuk),
+          cell(_statusKeluar(log), _fKeluar),
         ],
       ),
     );
@@ -1083,8 +1089,6 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
   Widget _buildMobileCards() {
     return Column(
       children: _logs.map((log) {
-        final bool masuk = log['jenis'] == 'masuk';
-        final Color c = masuk ? Colors.green : Colors.orange;
         return Container(
           margin: const EdgeInsets.only(bottom: 10),
           padding: const EdgeInsets.all(12),
@@ -1095,47 +1099,6 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: c.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(masuk ? Icons.login : Icons.logout,
-                            size: 14, color: c),
-                        const SizedBox(width: 4),
-                        Text(
-                          masuk ? 'Masuk' : 'Keluar',
-                          style: TextStyle(
-                              color: c,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12.5),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-               Flexible(
-  child: Text(
-    '${log['waktu'] ?? '-'}',
-    maxLines: 1,
-    overflow: TextOverflow.ellipsis,
-    textAlign: TextAlign.right,
-    style: const TextStyle(
-      fontSize: 12.5,
-      color: Colors.black54,
-    ),
-  ),
-),
-                ],
-              ),
-              const SizedBox(height: 8),
               Text(
                 '${log['nama'] ?? '-'}',
                 style:
@@ -1145,6 +1108,35 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
               Text(
                 'No Kavling: ${log['no_kavling'] ?? '-'}',
                 style: const TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(Icons.login, size: 16, color: Colors.green),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Masuk: ',
+                    style: TextStyle(fontSize: 13, color: Colors.black54),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '${log['jam_masuk'] ?? '-'}',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.logout, size: 16, color: Colors.orange),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Keluar: ',
+                    style: TextStyle(fontSize: 13, color: Colors.black54),
+                  ),
+                  Flexible(child: _statusKeluar(log, fontSize: 13)),
+                ],
               ),
             ],
           ),
@@ -1177,8 +1169,10 @@ if (result.alamat != null && result.alamat!.isNotEmpty) ...[
           onPressed: canPrev ? () => _fetchLog(page: _page - 1) : null,
           child: const Text('Previous'),
         ),
-        Text('Halaman $_page dari $_totalPages',
-            style: const TextStyle(fontSize: 15)),
+        Text(
+          'Halaman $_page dari $_totalPages',
+          style: const TextStyle(fontSize: 15),
+        ),
         ElevatedButton(
           style: style,
           onPressed: canNext ? () => _fetchLog(page: _page + 1) : null,
